@@ -61,6 +61,14 @@ Mở file `config.json` (tự động tạo từ `config.example.json`) và đi�
 ```
 *(Nếu chưa có Telegram Bot, bot vẫn quét bình thường và lưu ảnh chart vào thư mục `saved_charts/` để fen xem trực tiếp).*
 
+### Web Dashboard
+
+Khởi chạy chart UI, scanner controls và tín hiệu realtime:
+```bash
+./venv/bin/python server.py
+```
+Mở `http://127.0.0.1:8766` trong trình duyệt.
+
 ### Bước 2: Chạy Thử Nghiệm
 
 * **Quét 1 vòng thử nghiệm (Scan Once):**
