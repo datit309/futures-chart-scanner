@@ -14,3 +14,15 @@ async def test_server_routes():
     assert "/api/status" in routes
     assert "/api/chart" in routes
     assert "/api/symbols" in routes
+
+
+@pytest.mark.asyncio
+async def test_root_serves_dashboard_ui(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=5, timeframe="15m"))
+    client = await aiohttp_client(app)
+    response = await client.get("/")
+    assert response.status == 200
+    body = await response.text()
+    assert "FUTURES DESK" in body
+    assert "SCAN MARKET" in body
+    assert "lightweight-charts" in body
