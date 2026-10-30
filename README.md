@@ -1,0 +1,86 @@
+# 🎯 Crypto Futures Chart Scanner & Telegram Alert Bot
+
+> Hệ thống tự động phân tích đồ thị nến, vẽ Trendline, phát hiện Breakout/Cản và bắn ảnh đồ thị kèm điểm vào lệnh (Entry / Stop Loss / Take Profit) về Telegram cho các cặp coin **Binance USDT-M Futures**.
+
+---
+
+## ⚡ 1. Tính Năng Cốt Lõi
+
+1. **Auto-Trendline & Cấu Trúc Đồ Thị**:
+   * Tự động lọc đỉnh/đáy chuẩn xác bằng thuật toán Fractal $N$-nến (`find_swing_points`).
+   * Tự động kẻ các đường Trendline Hỗ trợ / Kháng cự; loại bỏ đường rác và chỉ giữ lại những đường có $\ge 3$ lần chạm kiểm định mà không bị thân nến đâm thủng.
+   * Tự động phát hiện vùng Hỗ trợ/Kháng cự ngang và vùng mất cân bằng thanh khoản **FVG (Fair Value Gap)**.
+2. **Nhận Diện Tín Hiệu Breakout Kèm Volume**:
+   * Phát hiện nến đóng cửa đâm thủng đường cản chéo (Downtrend Resistance $\rightarrow$ Breakout LONG; Uptrend Support $\rightarrow$ Breakdown SHORT).
+3. **Quản Trị Rủi Ro Khắt Khe ($R:R \ge 1:2.0$)**:
+   * Tự động đo khoảng cách cắt lỗ (Stop Loss) theo râu nến/đáy Swing gần nhất.
+   * Tính toán sẵn 2 mốc chốt lời: **TP1 ($1.5R$)** và **TP2 ($2.5R$)**.
+   * Chỉ phát tín hiệu khi tỷ lệ lời/lỗ $R:R \ge 1:2.0$; tự động loại bỏ các kèo rủi ro cao.
+4. **Vẽ Ảnh Đồ Thị Dark Mode & Gửi Telegram**:
+   * Dùng Matplotlib vẽ nến xanh/đỏ, volume, kẻ sẵn các đường Trendline, tô bóng vùng cản, đánh dấu các mốc Entry, SL, TP.
+   * Bắn trực tiếp ảnh chart sắc nét + bản kế hoạch giao dịch vào Telegram cá nhân / Group.
+5. **An Toàn Tuyệt Đối**:
+   * Sử dụng 100% dữ liệu Public từ Binance Futures API — **Không cần cung cấp API Key / Secret Key sàn**, không lo lộ tài khoản.
+
+---
+
+## 📁 2. Cấu Trúc Dự Án
+
+```
+futures-chart-scanner/
+├── config.py             # Quản lý cấu hình (Telegram Token, Timeframe, R:R...)
+├── config.example.json   # Mẫu file cấu hình
+├── binance_client.py     # Module kết nối bất đồng bộ Binance Futures Public API
+├── technical_engine.py   # Bộ não hình học: Fractal Swing, Auto-Trendline, FVG, Breakout
+├── risk_manager.py       # Quản trị rủi ro, lọc tỷ lệ R:R >= 2.0, format caption Telegram
+├── chart_renderer.py     # Vẽ đồ thị Dark Mode (nến, trendline, zones, entry/SL/TP)
+├── telegram_notifier.py  # Gửi ảnh chart + thông báo qua Telegram Bot API
+├── main.py               # Runner chính: CLI scan-once hoặc loop 24/7
+├── run.sh                # Script khởi động nhanh 1-click
+├── requirements.txt      # Danh sách thư viện Python
+├── saved_charts/         # Thư mục lưu ảnh đồ thị đã xuất
+└── tests/                # Bộ kiểm thử tự động TDD (13 tests)
+```
+
+---
+
+## 🚀 3. Hướng Dẫn Sử Dụng
+
+### Bước 1: Cấu hình Telegram (Tùy chọn)
+Mở file `config.json` (tự động tạo từ `config.example.json`) và điền thông tin:
+```json
+{
+    "telegram_bot_token": "YOUR_BOT_TOKEN_FROM_BOTFATHER",
+    "telegram_chat_id": "YOUR_CHAT_ID",
+    "timeframe": "15m",
+    "top_n_coins": 30,
+    "min_rr": 2.0,
+    "min_trendline_touches": 3,
+    "scan_interval_seconds": 300
+}
+```
+*(Nếu chưa có Telegram Bot, bot vẫn quét bình thường và lưu ảnh chart vào thư mục `saved_charts/` để fen xem trực tiếp).*
+
+### Bước 2: Chạy Thử Nghiệm
+
+* **Quét 1 vòng thử nghiệm (Scan Once):**
+  ```bash
+  ./run.sh --scan-once
+  ```
+
+* **Soi chart 1 con coin cụ thể (ví dụ: BTCUSDT hoặc SOLUSDT):**
+  ```bash
+  ./run.sh --symbol BTCUSDT
+  # Hoặc:
+  ./run.sh --symbol SOLUSDT --timeframe 15m
+  ```
+
+* **Chạy vòng lặp quét thị trường tự động 24/7:**
+  ```bash
+  ./run.sh --loop
+  ```
+
+* **Chạy toàn bộ Unit Tests:**
+  ```bash
+  ./run.sh --test
+  ```

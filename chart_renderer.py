@@ -1,6 +1,10 @@
 import io
+import os
+import tempfile
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+
+os.environ.setdefault("MPLCONFIGDIR", tempfile.gettempdir())
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
