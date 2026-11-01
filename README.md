@@ -61,13 +61,13 @@ Mở file `config.json` (tự động tạo từ `config.example.json`) và đi�
 ```
 *(Nếu chưa có Telegram Bot, bot vẫn quét bình thường và lưu ảnh chart vào thư mục `saved_charts/` để fen xem trực tiếp).*
 
-### Web Dashboard
+### Web Dashboard (Realtime)
 
-Khởi chạy chart UI, scanner controls và tín hiệu realtime:
+Khởi chạy chart UI, scanner controls và dữ liệu nến realtime:
 ```bash
 ./venv/bin/python server.py
 ```
-Mở `http://127.0.0.1:8766` trong trình duyệt.
+Mở `http://127.0.0.1:8766` trong trình duyệt. Giá realtime của cặp đang chọn được lấy từ Binance USDⓈ-M `bookTicker` WebSocket; giá này cập nhật liên tục. Nến lịch sử và khung OHLC vẫn lấy từ REST, nên nến đang mở là candle ước lượng cập nhật bằng giá mới nhất, không phải trade-by-trade OHLC từ kline stream. Khi trạng thái là `RECONNECTING`/`STALE`, UI sẽ báo rõ; khi kết nối lại sẽ tải lại lịch sử. Không cần Binance API key; app chỉ đọc dữ liệu thị trường công khai và không đặt lệnh. Tín hiệu chỉ để nghiên cứu, không đảm bảo lợi nhuận.
 
 ### Bước 2: Chạy Thử Nghiệm
 

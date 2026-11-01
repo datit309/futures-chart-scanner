@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, rollLiveCandle, shouldShowConnectingStatus } from '../static/chart_stream.js';
+
+test('upsertKline replaces matching candle and appends a newer candle', () => {
+  const original = [{ time: 100, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }];
+  const updated = upsertKline(original, { time: 100, open: 1, high: 3, low: 0.5, close: 2.5, volume: 11 });
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0].close, 2.5);
+  const appended = upsertKline(updated, { time: 200, open: 2.5, high: 3, low: 2, close: 2.8, volume: 12 });
+  assert.equal(appended.length, 2);
+  assert.equal(appended[1].time, 200);
+});
+
+test('bookTicker ticks roll the live candle when interval boundary changes', () => {
+  const base=900;
+  const next=rollLiveCandle({time:base,open:10,high:12,low:9,close:11,volume:50},13,base+900);
+  assert.deepEqual(next,{time:base+900,open:13,high:13,low:13,close:13,volume:0,closed:false});
+});
+
+test('bookTicker updates the in-progress candle without replacing its open', () => {
+  const base={time:900,open:10,high:12,low:9,close:11,volume:50};
+  const tick=rollLiveCandle(base,13,900);
+  assert.deepEqual(tick,{...base,high:13,low:9,close:13,closed:false});
+});
+
+test('loadChart does not overwrite a connected market status', () => {
+  assert.equal(shouldShowConnectingStatus({marketReadyState:1}),false);
+  assert.equal(shouldShowConnectingStatus({marketReadyState:0}),true);
+});
+
+test('upsertKline ignores an out-of-order older candle', () => {
+  const original = [{ time: 200, open: 2, high: 3, low: 1, close: 2.5, volume: 8 }];
+  assert.equal(upsertKline(original, { time: 100, open: 1, high: 2, low: 0, close: 1, volume: 4 }), original);
+});
+
+test('createThrottle caps expensive calculations at four per second', () => {
+  let now = 0;
+  const calls = [];
+  const throttled = createThrottle((value) => calls.push([now, value]), 250, () => now);
+  throttled('a'); now = 100; throttled('b'); now = 249; throttled('c'); now = 250; throttled('d');
+  assert.deepEqual(calls, [[0, 'a'], [250, 'd']]);
+});
+
+test('trendline points consume the API payload projection fields', () => {
+  const line = {time1:100,price1:10,next_time:200,next_price:12,is_resistance:true,touches:5};
+  assert.deepEqual(trendlinePoints(line), [{time:100,value:10},{time:200,value:12}]);
+});
+
+test('drawZoneBands renders realistic server S/R zone across chart history', () => {
+  const fills=[];
+  const ctx={clearRect(){},set fillStyle(value){this.color=value},fillRect(...args){fills.push({color:this.color,args})}};
+  const chart={timeScale:()=>({timeToCoordinate:t=>t})};
+  const series={priceToCoordinate:p=>p};
+  drawZoneBands(ctx,chart,series,[{bottom:10,top:12,kind:'SUPPORT_RESISTANCE'}],[],[{time:100},{time:200}],200,100,true,false);
+  assert.equal(fills.length,1);
+  assert.equal(fills[0].color,'rgba(53,119,199,.12)');
+  assert.deepEqual(fills[0].args,[100,10,100,2]);
+});
+
+test('market structure selects best line by touches then recency then residual', () => {
+  const weak={is_resistance:true,touches:4,point2:[5,5],residual:0.001};
+  const fresh={is_resistance:true,touches:5,point2:[8,8],residual:0.005};
+  const accurate={is_resistance:true,touches:5,point2:[8,8],residual:0.001};
+  const support={is_resistance:false,touches:3,point2:[7,7],residual:0.01};
+  assert.deepEqual(chooseMarketStructure([weak,fresh,accurate,support]),[accurate,support]);
+});

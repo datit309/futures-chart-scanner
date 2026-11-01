@@ -29,17 +29,57 @@ def test_config_from_dict():
 @pytest.mark.asyncio
 async def test_get_top_futures_symbols():
     client = BinanceClient()
+    exchange_info = {"symbols": [
+        {"symbol": "BTCUSDT", "quoteAsset": "USDT", "status": "TRADING", "contractType": "PERPETUAL"},
+        {"symbol": "ETHUSDT", "quoteAsset": "USDT", "status": "TRADING", "contractType": "PERPETUAL"},
+        {"symbol": "SOLUSDT", "quoteAsset": "USDT", "status": "TRADING", "contractType": "PERPETUAL"},
+        {"symbol": "1000PEPEUSDT", "quoteAsset": "USDT", "status": "TRADING", "contractType": "PERPETUAL"},
+        {"symbol": "BTCBUSD", "quoteAsset": "BUSD", "status": "TRADING", "contractType": "PERPETUAL"},
+    ]}
     mock_tickers = [
         {"symbol": "BTCUSDT", "quoteVolume": "1000000000.0"},
         {"symbol": "ETHUSDT", "quoteVolume": "500000000.0"},
         {"symbol": "SOLUSDT", "quoteVolume": "300000000.0"},
         {"symbol": "1000PEPEUSDT", "quoteVolume": "200000000.0"},
-        {"symbol": "BTCBUSD", "quoteVolume": "999999999.0"},  # Should be filtered out if not USDT
+        {"symbol": "BTCBUSD", "quoteVolume": "999999999.0"},
     ]
-
-    with patch.object(client, "_fetch_json", return_value=mock_tickers):
+    with patch.object(client, "_fetch_json", side_effect=[exchange_info, mock_tickers]):
         top_symbols = await client.get_top_futures_symbols(limit=3)
         assert top_symbols == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+
+@pytest.mark.asyncio
+async def test_top_symbols_filters_contracts_and_merges_tickers():
+    client = BinanceClient()
+    exchange_info = {
+        "symbols": [
+            {"symbol": "BTCUSDT", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT"},
+            {"symbol": "OLDUSDT", "status": "BREAK", "contractType": "PERPETUAL", "quoteAsset": "USDT"},
+            {"symbol": "BTCUSDT_260101", "status": "TRADING", "contractType": "CURRENT_QUARTER", "quoteAsset": "USDT"},
+            {"symbol": "ETHBUSD", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "BUSD"},
+            {"symbol": "ETHUSDT", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT"},
+        ]
+    }
+    tickers = [
+        {"symbol": "BTCUSDT", "lastPrice": "60000", "priceChangePercent": "1.25", "quoteVolume": "1000"},
+        # ETHUSDT deliberately has no ticker row: it stays in universe with safe empty metrics.
+        {"symbol": "OLDUSDT", "lastPrice": "1", "priceChangePercent": "0", "quoteVolume": "9999"},
+    ]
+    responses = [exchange_info, tickers]
+    async def fake_fetch(url, params=None):
+        return responses.pop(0)
+    with patch.object(client, "_fetch_json", side_effect=fake_fetch):
+        result = await client.get_top_futures_symbols(limit=10)
+    assert result == ["BTCUSDT", "ETHUSDT"]
+    assert client.ticker_metrics["BTCUSDT"] == {
+        "lastPrice": 60000.0,
+        "priceChangePercent": 1.25,
+        "quoteVolume": 1000.0,
+    }
+    assert client.ticker_metrics["ETHUSDT"] == {
+        "lastPrice": 0.0,
+        "priceChangePercent": 0.0,
+        "quoteVolume": 0.0,
+    }
 
 @pytest.mark.asyncio
 async def test_get_klines():
