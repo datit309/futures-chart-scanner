@@ -2,6 +2,10 @@ export function shouldShowConnectingStatus({marketReadyState}) {
   return marketReadyState !== 1;
 }
 
+export function clientReconnectDelay(attempt) {
+  return Math.min(1000 * 2 ** Math.max(0, attempt - 1), 30000);
+}
+
 export function rollLiveCandle(candle, price, nextBoundary) {
   if (!candle || !Number.isFinite(price) || !Number.isFinite(nextBoundary)) return candle;
   if (nextBoundary <= candle.time) {
@@ -34,4 +38,4 @@ export function drawZoneBands(ctx,chart,candleSeries,zones,fvgs,candles,width,he
   if(showZones)zones.forEach(z=>drawBand(Array.isArray(z)?{index:0,bottom:z[0],top:z[1]}:{...z,index:0,end_index:candles.length-1},'rgba(53,119,199,.12)'));
   if(showFvgs)fvgs.forEach(z=>drawBand(z,z.type==='BULLISH'?'rgba(0,214,154,.10)':'rgba(255,94,110,.10)'));
 }
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,rollLiveCandle,shouldShowConnectingStatus};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,rollLiveCandle,shouldShowConnectingStatus,clientReconnectDelay};

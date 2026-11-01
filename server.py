@@ -34,7 +34,8 @@ def websocket_backoff_delay(attempt: int) -> int:
 
 
 def should_retry_websocket_close(code: Optional[int]) -> bool:
-    return code not in {1000, 1001, 1008, 1012, 1013}
+    # Normal closure, going away, service restart and try-again-later are transient for this feed.
+    return code not in {1008}
 
 
 def normalize_binance_book_ticker_event(event: Dict[str, Any], timeframe: str) -> Optional[Dict[str, Any]]:

@@ -188,6 +188,24 @@ async def test_market_websocket_status_transitions(aiohttp_client):
         await ws.close()
 
 
+def test_server_close_policy_retries_transient_and_normal_closes():
+    from server import should_retry_websocket_close
+    assert should_retry_websocket_close(1000) is True
+    assert should_retry_websocket_close(1001) is True
+    assert should_retry_websocket_close(1012) is True
+    assert should_retry_websocket_close(1013) is True
+    assert should_retry_websocket_close(1008) is False
+
+
+@pytest.mark.asyncio
+async def test_signal_socket_close_does_not_override_market_state(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    client = await aiohttp_client(app)
+    body = await (await client.get("/")).text()
+    assert "shouldShowConnectingStatus" in body
+    assert "marketWs.readyState!==WebSocket.OPEN" in body
+
+
 @pytest.mark.asyncio
 async def test_dashboard_exposes_realtime_chart_controls(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1))

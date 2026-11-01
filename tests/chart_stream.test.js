@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, rollLiveCandle, shouldShowConnectingStatus } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, rollLiveCandle, shouldShowConnectingStatus, clientReconnectDelay } from '../static/chart_stream.js';
 
 test('upsertKline replaces matching candle and appends a newer candle', () => {
   const original = [{ time: 100, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }];
@@ -24,9 +24,26 @@ test('bookTicker updates the in-progress candle without replacing its open', () 
   assert.deepEqual(tick,{...base,high:13,low:9,close:13,closed:false});
 });
 
+test('client reconnect delay increases and caps at thirty seconds', () => {
+  assert.deepEqual([1,2,3,4,5,6,7].map(clientReconnectDelay),[1000,2000,4000,8000,16000,30000,30000]);
+});
+
 test('loadChart does not overwrite a connected market status', () => {
   assert.equal(shouldShowConnectingStatus({marketReadyState:1}),false);
   assert.equal(shouldShowConnectingStatus({marketReadyState:0}),true);
+});
+
+test('market reconnect backoff grows and caps', () => {
+  const delays=[0,1,2,3,4,5,6,7].map(n=>Math.min(2**Math.max(0,n-1),30));
+  assert.deepEqual(delays,[1,1,2,4,8,16,30,30]);
+});
+
+test('upsertKline keeps a bounded candle history after rollover', () => {
+  const candles=[{time:100,open:1,high:2,low:1,close:2,volume:4}];
+  const rolled=rollLiveCandle(candles.at(-1),3,200);
+  const merged=upsertKline(candles,rolled);
+  assert.equal(merged.at(-1).time,200);
+  assert.equal(merged.at(-1).open,3);
 });
 
 test('upsertKline ignores an out-of-order older candle', () => {
