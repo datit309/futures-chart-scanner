@@ -39,7 +39,7 @@ export function trendlinePoints(line){
 export function drawZoneBands(ctx,chart,candleSeries,zones,fvgs,candles,width,height,showZones=true,showFvgs=true){
   ctx.clearRect(0,0,width,height);if(!candles.length)return;
   const drawBand=(zone,color)=>{const startIndex=Math.max(0,Math.min(candles.length-1,zone.index??0)),endIndex=Math.max(startIndex,Math.min(candles.length-1,zone.end_index??candles.length-1));const x1=chart.timeScale().timeToCoordinate(candles[startIndex].time),x2=chart.timeScale().timeToCoordinate(candles[endIndex].time),y1=candleSeries.priceToCoordinate(zone.top),y2=candleSeries.priceToCoordinate(zone.bottom);if([x1,x2,y1,y2].some(v=>v===null||v===undefined))return;ctx.fillStyle=color;ctx.fillRect(Math.min(x1,x2),Math.min(y1,y2),Math.max(2,Math.abs(x2-x1)),Math.max(2,Math.abs(y2-y1)));};
-  if(showZones)zones.forEach(z=>drawBand(Array.isArray(z)?{index:0,bottom:z[0],top:z[1]}:{...z,index:0,end_index:candles.length-1},'rgba(53,119,199,.12)'));
-  if(showFvgs)fvgs.forEach(z=>drawBand(z,z.type==='BULLISH'?'rgba(0,214,154,.10)':'rgba(255,94,110,.10)'));
+  if(showZones)zones.forEach(z=>drawBand(Array.isArray(z)?{index:0,bottom:z[0],top:z[1]}:{...z,index:0,end_index:candles.length-1},'rgba(101,207,255,.05)'));
+  if(showFvgs)fvgs.forEach(z=>drawBand(z,z.type==='BULLISH'?'rgba(0,214,154,.08)':'rgba(255,94,110,.08)'));
 }
 if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay};

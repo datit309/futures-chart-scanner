@@ -4,7 +4,8 @@ import time
 import asyncio
 import re
 from typing import Dict, Any, List, Optional
-from aiohttp import web
+import aiohttp
+from aiohttp import WSMsgType, web
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from config import ScannerConfig
@@ -197,28 +198,8 @@ def build_structure_payload(
     time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if n_bars > 1 else 0
     next_time = int(klines[-1]["timestamp"] / 1000) + time_step
 
-    tv_trendlines = []
-    for tl in trendlines:
-        idx1, p1 = tl.point1
-        idx2, p2 = tl.point2
-        if idx1 < n_bars and idx2 < n_bars:
-            tv_trendlines.append({
-                "time1": int(klines[idx1]["timestamp"] / 1000),
-                "price1": p1,
-                "time2": int(klines[idx2]["timestamp"] / 1000),
-                "price2": p2,
-                "anchor_index": idx2,
-                "point2": [idx2, p2],
-                "next_time": next_time,
-                "curr_time": int(klines[n_bars - 1]["timestamp"] / 1000),
-                "curr_price": tl.value_at(n_bars - 1),
-                "next_price": tl.value_at(n_bars),
-                "is_resistance": tl.is_resistance,
-                "touches": tl.touches,
-                "residual": getattr(tl, "residual", None),
-            })
-
     signal_info = state.active_signals.get(symbol)
+    signal_trendline = None
     if not signal_info:
         for raw_sig in state.technical_engine.analyze_market(klines, symbol=symbol, timeframe=timeframe):
             enriched = state.risk_manager.validate_and_enrich(raw_sig)
@@ -238,9 +219,48 @@ def build_structure_payload(
                     "description": enriched.description,
                     "timestamp": time.time(),
                 }
+                if raw_sig.trendlines:
+                    signal_trendline = raw_sig.trendlines[0]
                 break
 
-    zone_bands = [{"bottom": lo, "top": hi, "kind": "SUPPORT_RESISTANCE"} for lo, hi in sr_zones[:4]]
+    # Select trendlines: if a signal exists, the broken trendline MUST be shown as #1!
+    selected_trendlines = []
+    if signal_trendline:
+        selected_trendlines.append(signal_trendline)
+        opposing = [tl for tl in trendlines if tl.is_resistance != signal_trendline.is_resistance]
+        opposing_selected = state.technical_engine.select_strongest_trendlines(opposing, n_bars=n_bars)
+        if opposing_selected:
+            selected_trendlines.append(opposing_selected[0])
+    else:
+        selected_trendlines = state.technical_engine.select_strongest_trendlines(trendlines, n_bars=n_bars)
+
+    tv_trendlines = []
+    for tl in selected_trendlines:
+        idx1, p1 = tl.point1
+        idx2, p2 = tl.point2
+        if idx1 < n_bars and idx2 < n_bars:
+            tv_trendlines.append({
+                "time1": int(klines[idx1]["timestamp"] / 1000),
+                "price1": p1,
+                "time2": int(klines[idx2]["timestamp"] / 1000),
+                "price2": p2,
+                "anchor_index": idx2,
+                "point2": [idx2, p2],
+                "next_time": next_time,
+                "curr_time": int(klines[n_bars - 1]["timestamp"] / 1000),
+                "curr_price": tl.value_at(n_bars - 1),
+                "next_price": tl.value_at(n_bars),
+                "is_resistance": tl.is_resistance,
+                "touches": tl.touches,
+                "residual": getattr(tl, "residual", None),
+            })
+
+    # Crisp, elegant S/R bands (max +-0.15% padding so it never covers the screen)
+    zone_bands = []
+    for lo, hi in sr_zones[:3]:
+        mid = (lo + hi) / 2
+        pad = min(max(abs(hi - lo) / 2, mid * 0.0008), mid * 0.0018)
+        zone_bands.append({"bottom": mid - pad, "top": mid + pad, "kind": "SUPPORT_RESISTANCE"})
     fvg_bands = [dict(fvg) for fvg in (fvgs[-4:] if fvgs else [])]
     for band in fvg_bands:
         band["end_index"] = n_bars - 1
@@ -363,6 +383,47 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
             downstream_closed.set()
 
     downstream_task = asyncio.create_task(watch_downstream())
+
+    async def stream_ticks():
+        """Relay sub-second live ticks from Binance bookTicker directly to the browser."""
+        while not ws.closed and not downstream_closed.is_set():
+            session = None
+            try:
+                session = aiohttp.ClientSession()
+                url = f"wss://fstream.binance.com/ws/{symbol.lower()}@bookTicker"
+                async with session.ws_connect(url, heartbeat=20.0) as upstream:
+                    async for msg in upstream:
+                        if ws.closed or downstream_closed.is_set():
+                            break
+                        if msg.type == WSMsgType.TEXT:
+                            try:
+                                d = json.loads(msg.data)
+                                bid = float(d["b"])
+                                ask = float(d["a"])
+                                if bid > 0 and ask >= bid:
+                                    mid = (bid + ask) / 2
+                                    if not await send({
+                                        "type": "tick",
+                                        "symbol": symbol,
+                                        "price": mid,
+                                        "bid": bid,
+                                        "ask": ask,
+                                        "time": int(d.get("E", 0))
+                                    }):
+                                        break
+                            except Exception:
+                                pass
+                        elif msg.type in (WSMsgType.CLOSED, WSMsgType.ERROR):
+                            break
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(2)
+            finally:
+                if session and not session.closed:
+                    await session.close()
+
+    tick_task = asyncio.create_task(stream_ticks())
     history: List[Dict[str, Any]] = []
     try:
         while not ws.closed and not downstream_closed.is_set():
@@ -442,6 +503,12 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
             await asyncio.sleep(websocket_backoff_delay(attempt))
     finally:
         downstream_closed.set()
+        if tick_task and not tick_task.done():
+            tick_task.cancel()
+            try:
+                await tick_task
+            except asyncio.CancelledError:
+                pass
         if not downstream_task.done():
             downstream_task.cancel()
         try:

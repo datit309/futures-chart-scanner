@@ -85,7 +85,7 @@ test('drawZoneBands renders realistic server S/R zone across chart history', () 
   const series={priceToCoordinate:p=>p};
   drawZoneBands(ctx,chart,series,[{bottom:10,top:12,kind:'SUPPORT_RESISTANCE'}],[],[{time:100},{time:200}],200,100,true,false);
   assert.equal(fills.length,1);
-  assert.equal(fills[0].color,'rgba(53,119,199,.12)');
+  assert.equal(fills[0].color,'rgba(101,207,255,.05)');
   assert.deepEqual(fills[0].args,[100,10,100,2]);
 });
 
