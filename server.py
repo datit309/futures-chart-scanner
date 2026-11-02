@@ -14,6 +14,7 @@ from technical_engine import TechnicalEngine
 from risk_manager import RiskManager, EnrichedSignal
 from chart_renderer import ChartRenderer
 from telegram_notifier import TelegramNotifier
+from signal_tracker import SignalTracker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -83,6 +84,7 @@ class WebServerState:
             chat_id=config.telegram_chat_id
         )
         self.last_scan_time: float = 0.0
+        self.signal_tracker = SignalTracker(db_path=os.getenv("SIGNALS_DB_PATH", "signals.db"))
         self.active_signals: Dict[str, Dict[str, Any]] = {}
         self.top_symbols: List[str] = []
         self.ws_clients: set = set()
@@ -115,6 +117,18 @@ class WebServerState:
                 klines = await self.client.get_klines(sym, interval=self.config.timeframe, limit=80)
                 if not klines or len(klines) < 15:
                     continue
+
+                # Evaluate any open signals against the latest forming candle
+                try:
+                    outcomes = self.signal_tracker.evaluate_open_signals(sym, klines[-1])
+                    for outcome in outcomes:
+                        if outcome.get("status") in ("WIN", "LOSS"):
+                            await self.broadcast_ws("SIGNAL_OUTCOME", outcome)
+                            if sym in self.active_signals:
+                                self.active_signals[sym]["status"] = outcome["status"]
+                except Exception as exc:
+                    print(f"[Tracker] Error evaluating signals for {sym}: {exc}")
+
                 raw_signals = self.technical_engine.analyze_market(klines, symbol=sym, timeframe=self.config.timeframe)
                 for raw_sig in raw_signals:
                     enriched = self.risk_manager.validate_and_enrich(raw_sig)
@@ -132,8 +146,17 @@ class WebServerState:
                             "risk_reward": enriched.risk_reward,
                             "sl_pct": enriched.sl_pct,
                             "description": enriched.description,
-                            "timestamp": time.time()
+                            "timestamp": time.time(),
+                            "status": "OPEN",
                         }
+
+                        # Persist to SQLite database with kline snapshot
+                        try:
+                            sig_id = self.signal_tracker.save_signal(sig_dict, klines=klines[-50:])
+                            sig_dict["id"] = sig_id
+                        except Exception as exc:
+                            print(f"[Tracker] Error saving signal for {sym}: {exc}")
+
                         self.active_signals[sym] = sig_dict
                         found_signals.append(sig_dict)
 
@@ -169,7 +192,69 @@ async def handle_api_status(request: web.Request) -> web.Response:
         "is_scanning": state.is_scanning,
         "scan_interval_seconds": state.config.scan_interval_seconds,
         "active_signals": list(state.active_signals.values()),
-        "top_symbols": state.top_symbols[:15]
+        "top_symbols": state.top_symbols[:15],
+        "stats": state.signal_tracker.get_stats(),
+    })
+
+async def handle_api_signals(request: web.Request) -> web.Response:
+    state: WebServerState = request.app["state"]
+    status_filter = request.query.get("status")
+    symbol_filter = request.query.get("symbol")
+    limit = int(request.query.get("limit", "50"))
+    signals = state.signal_tracker.list_signals(
+        status_filter=status_filter,
+        symbol_filter=symbol_filter,
+        limit=limit,
+    )
+    stats = state.signal_tracker.get_stats()
+    return web.json_response({
+        "signals": signals,
+        "stats": stats,
+    })
+
+async def handle_api_signal_chart(request: web.Request) -> web.Response:
+    state: WebServerState = request.app["state"]
+    try:
+        signal_id = int(request.match_info["id"])
+    except (KeyError, ValueError):
+        return web.json_response({"error": "invalid_id"}, status=400)
+
+    sig = state.signal_tracker.get_signal(signal_id)
+    if not sig:
+        return web.json_response({"error": "signal_not_found"}, status=404)
+
+    kline_snapshot = sig.get("kline_snapshot", [])
+    tv_candles = []
+    tv_volumes = []
+    for k in kline_snapshot:
+        raw_ts = k.get("timestamp", k.get("time", 0))
+        t_sec = int(raw_ts / 1000) if raw_ts > 1e11 else int(raw_ts)
+        o, h, l, c = float(k["open"]), float(k["high"]), float(k["low"]), float(k["close"])
+        vol = float(k.get("volume", 0.0))
+        tv_candles.append({
+            "time": t_sec,
+            "open": o,
+            "high": h,
+            "low": l,
+            "close": c,
+        })
+        is_bull = c >= o
+        tv_volumes.append({
+            "time": t_sec,
+            "value": vol,
+            "color": "rgba(14, 203, 129, 0.45)" if is_bull else "rgba(246, 70, 93, 0.45)",
+        })
+
+    return web.json_response({
+        "symbol": sig["symbol"],
+        "timeframe": sig["timeframe"],
+        "signal": sig,
+        "candles": tv_candles,
+        "volumes": tv_volumes,
+        "trendlines": [],
+        "sr_zones": [],
+        "zone_bands": [],
+        "fvgs": [],
     })
 
 async def handle_api_symbols(request: web.Request) -> web.Response:
@@ -553,6 +638,8 @@ async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     app.router.add_get("/api/status", handle_api_status)
     app.router.add_get("/api/symbols", handle_api_symbols)
     app.router.add_get("/api/chart", handle_api_chart)
+    app.router.add_get("/api/signals", handle_api_signals)
+    app.router.add_get("/api/signals/{id}/chart", handle_api_signal_chart)
     app.router.add_post("/api/scan", handle_api_scan)
     app.router.add_get("/ws/stream", handle_ws)
     app.router.add_get("/ws/market", handle_market_ws)

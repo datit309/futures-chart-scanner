@@ -335,3 +335,57 @@ async def test_dashboard_exposes_realtime_chart_controls(aiohttp_client):
     assert "ws/market" in body
     assert 'aria-label="Overlay controls"' in body
     assert "quoteVolume" in body
+
+
+@pytest.mark.asyncio
+async def test_api_signals_and_historical_chart_endpoints(aiohttp_client, tmp_path):
+    from signal_tracker import SignalTracker
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    # inject tracker with temp db
+    tracker = SignalTracker(db_path=str(tmp_path / "test_api_signals.db"))
+    app["state"].signal_tracker = tracker
+
+    # 1. Save dummy signal
+    sig = {
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "BREAKOUT",
+        "entry_price": 78000.0,
+        "stop_loss": 77000.0,
+        "tp1": 80200.0,
+        "tp2": 81000.0,
+        "risk_reward": 2.2,
+        "sl_pct": 0.0128,
+        "description": "Bullish Breakout over Resistance Trendline",
+        "timestamp": 1700000000.0,
+    }
+    klines = [
+        {"timestamp": 1699990000000, "open": 77500, "high": 78100, "low": 77400, "close": 78000, "volume": 100},
+        {"timestamp": 1700000000000, "open": 78000, "high": 80300, "low": 77900, "close": 80200, "volume": 120},
+    ]
+    sig_id = tracker.save_signal(sig, klines)
+    # Win it
+    tracker.evaluate_signal(sig_id, klines[1])
+
+    client = await aiohttp_client(app)
+
+    # Test /api/signals
+    res = await client.get("/api/signals")
+    assert res.status == 200
+    data = await res.json()
+    assert "signals" in data
+    assert "stats" in data
+    assert len(data["signals"]) == 1
+    assert data["signals"][0]["status"] == "WIN"
+    assert data["stats"]["wins"] == 1
+    assert data["stats"]["win_rate"] == 100.0
+
+    # Test /api/signals/{id}/chart
+    res_chart = await client.get(f"/api/signals/{sig_id}/chart")
+    assert res_chart.status == 200
+    chart_data = await res_chart.json()
+    assert chart_data["symbol"] == "BTCUSDT"
+    assert "candles" in chart_data
+    assert len(chart_data["candles"]) == 2
+    assert chart_data["signal"]["status"] == "WIN"
