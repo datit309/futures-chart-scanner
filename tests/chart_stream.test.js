@@ -1,6 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, rollLiveCandle, shouldShowConnectingStatus, clientReconnectDelay } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays } from '../static/chart_stream.js';
+
+test('structureToOverlays normalizes a server structure message', () => {
+  const payload = {
+    type: "structure", symbol: "BTCUSDT", timeframe: "15m",
+    trendlines: [
+      {time1: 100, price1: 10, next_time: 200, next_price: 12, is_resistance: true, touches: 5},
+      {time1: 100, price1: 8, next_time: 200, next_price: 6, is_resistance: false, touches: 4},
+    ],
+    sr_zones: [[10, 12], [6, 8]],
+    zone_bands: [{bottom: 10, top: 12, kind: "SUPPORT_RESISTANCE"}],
+    fvgs: [{index: 5, bottom: 10, top: 11, type: "BULLISH", end_index: 9}],
+    signal: {symbol: "BTCUSDT", signal_type: "LONG", entry_price: 11, stop_loss: 9, tp1: 12, tp2: 13},
+  };
+  const overlays = structureToOverlays(payload);
+  assert.deepEqual(overlays.trendlines, payload.trendlines);
+  assert.deepEqual(overlays.zone_bands, payload.zone_bands);
+  assert.deepEqual(overlays.fvgs, payload.fvgs);
+  assert.equal(overlays.signal["signal_type"], "LONG");
+});
+
+test('structureToOverlays tolerates missing fields', () => {
+  const overlays = structureToOverlays({type: "structure", symbol: "BTCUSDT"});
+  assert.deepEqual(overlays.trendlines, []);
+  assert.deepEqual(overlays.zone_bands, []);
+  assert.deepEqual(overlays.fvgs, []);
+  assert.equal(overlays.signal, null);
+});
 
 test('upsertKline replaces matching candle and appends a newer candle', () => {
   const original = [{ time: 100, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }];
@@ -10,18 +37,6 @@ test('upsertKline replaces matching candle and appends a newer candle', () => {
   const appended = upsertKline(updated, { time: 200, open: 2.5, high: 3, low: 2, close: 2.8, volume: 12 });
   assert.equal(appended.length, 2);
   assert.equal(appended[1].time, 200);
-});
-
-test('bookTicker ticks roll the live candle when interval boundary changes', () => {
-  const base=900;
-  const next=rollLiveCandle({time:base,open:10,high:12,low:9,close:11,volume:50},13,base+900);
-  assert.deepEqual(next,{time:base+900,open:13,high:13,low:13,close:13,volume:0,closed:false});
-});
-
-test('bookTicker updates the in-progress candle without replacing its open', () => {
-  const base={time:900,open:10,high:12,low:9,close:11,volume:50};
-  const tick=rollLiveCandle(base,13,900);
-  assert.deepEqual(tick,{...base,high:13,low:9,close:13,closed:false});
 });
 
 test('client reconnect delay increases and caps at thirty seconds', () => {
@@ -40,8 +55,7 @@ test('market reconnect backoff grows and caps', () => {
 
 test('upsertKline keeps a bounded candle history after rollover', () => {
   const candles=[{time:100,open:1,high:2,low:1,close:2,volume:4}];
-  const rolled=rollLiveCandle(candles.at(-1),3,200);
-  const merged=upsertKline(candles,rolled);
+  const merged=upsertKline(candles,{time:200,open:3,high:3,low:3,close:3,volume:0,closed:false});
   assert.equal(merged.at(-1).time,200);
   assert.equal(merged.at(-1).open,3);
 });

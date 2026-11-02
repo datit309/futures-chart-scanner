@@ -6,12 +6,16 @@ export function clientReconnectDelay(attempt) {
   return Math.min(1000 * 2 ** Math.max(0, attempt - 1), 30000);
 }
 
-export function rollLiveCandle(candle, price, nextBoundary) {
-  if (!candle || !Number.isFinite(price) || !Number.isFinite(nextBoundary)) return candle;
-  if (nextBoundary <= candle.time) {
-    return {...candle, high: Math.max(candle.high, price), low: Math.min(candle.low, price), close: price, closed: false};
+export function structureToOverlays(payload) {
+  if (!payload || typeof payload !== "object") {
+    return {trendlines: [], zone_bands: [], fvgs: [], signal: null};
   }
-  return {time: nextBoundary, open: price, high: price, low: price, close: price, volume: 0, closed: false};
+  return {
+    trendlines: Array.isArray(payload.trendlines) ? payload.trendlines : [],
+    zone_bands: Array.isArray(payload.zone_bands) ? payload.zone_bands : [],
+    fvgs: Array.isArray(payload.fvgs) ? payload.fvgs : [],
+    signal: payload.signal || null,
+  };
 }
 
 export function upsertKline(candles, candle) {
@@ -38,4 +42,4 @@ export function drawZoneBands(ctx,chart,candleSeries,zones,fvgs,candles,width,he
   if(showZones)zones.forEach(z=>drawBand(Array.isArray(z)?{index:0,bottom:z[0],top:z[1]}:{...z,index:0,end_index:candles.length-1},'rgba(53,119,199,.12)'));
   if(showFvgs)fvgs.forEach(z=>drawBand(z,z.type==='BULLISH'?'rgba(0,214,154,.10)':'rgba(255,94,110,.10)'));
 }
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,rollLiveCandle,shouldShowConnectingStatus,clientReconnectDelay};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay};

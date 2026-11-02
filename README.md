@@ -67,7 +67,7 @@ Khởi chạy chart UI, scanner controls và dữ liệu nến realtime:
 ```bash
 ./venv/bin/python server.py
 ```
-Mở `http://127.0.0.1:8766` trong trình duyệt. Giá realtime của cặp đang chọn được lấy từ Binance USDⓈ-M `bookTicker` WebSocket; giá này cập nhật liên tục. Nến lịch sử và khung OHLC vẫn lấy từ REST, nên nến đang mở là candle ước lượng cập nhật bằng giá mới nhất, không phải trade-by-trade OHLC từ kline stream. Khi trạng thái là `RECONNECTING`/`STALE`, UI sẽ báo rõ; khi kết nối lại sẽ tải lại lịch sử. Không cần Binance API key; app chỉ đọc dữ liệu thị trường công khai và không đặt lệnh. Tín hiệu chỉ để nghiên cứu, không đảm bảo lợi nhuận.
+Mở `http://127.0.0.1:8766` trong trình duyệt. Nến realtime (OHLC đầy đủ: open/high/low/close/volume) của cặp đang chọn được lấy từ Binance USDⓈ-M REST `/fapi/v1/klines`, server poll mỗi 3 giây rồi đẩy qua `/ws/market`. Binance `@kline_*` WebSocket handshake thành công nhưng không phát frame trong môi trường mạng này, nên REST polling là nguồn realtime thay thế. Phân tích cấu trúc (trendline, vùng S/R, FVG, tín hiệu) do server `TechnicalEngine` tính và gửi cùng stream. Khi trạng thái là `RECONNECTING`/`STALE`, UI sẽ báo rõ; khi kết nối lại sẽ tải lại lịch sử. Không cần Binance API key; app chỉ đọc dữ liệu thị trường công khai và không đặt lệnh. Tín hiệu chỉ để nghiên cứu, không đảm bảo lợi nhuận.
 
 ### Bước 2: Chạy Thử Nghiệm
 
