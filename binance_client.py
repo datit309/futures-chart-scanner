@@ -6,6 +6,7 @@ class BinanceClient:
     def __init__(self, base_url: str = "https://fapi.binance.com"):
         self.base_url = base_url.rstrip("/")
         self._session: Optional[aiohttp.ClientSession] = None
+        self.ticker_metrics: Dict[str, Dict[str, float]] = {}
 
     async def get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -24,22 +25,39 @@ class BinanceClient:
             return await resp.json()
 
     async def get_top_futures_symbols(self, limit: int = 30) -> List[str]:
+        """Return active USDT perpetual symbols ranked by 24h quote volume.
+
+        The matching 24h ticker metrics are retained in ``ticker_metrics``.
+        A contract remains eligible when its ticker is temporarily absent.
         """
-        Fetch all 24hr tickers from Binance USDT-M Futures,
-        filter only USDT quote asset, and return top symbols sorted by quoteVolume descending.
-        """
-        url = f"{self.base_url}/fapi/v1/ticker/24hr"
         try:
-            data = await self._fetch_json(url)
-            usdt_tickers = [
-                item for item in data 
-                if item.get("symbol", "").endswith("USDT")
-            ]
-            usdt_tickers.sort(
-                key=lambda x: float(x.get("quoteVolume", 0)), 
-                reverse=True
-            )
-            return [item["symbol"] for item in usdt_tickers[:limit]]
+            exchange_info = await self._fetch_json(f"{self.base_url}/fapi/v1/exchangeInfo")
+            tickers = await self._fetch_json(f"{self.base_url}/fapi/v1/ticker/24hr")
+            ticker_by_symbol = {
+                item.get("symbol"): item for item in tickers
+                if isinstance(item, dict) and item.get("symbol")
+            }
+            eligible = []
+            self.ticker_metrics = {}
+            for contract in exchange_info.get("symbols", []):
+                if (
+                    contract.get("status") != "TRADING"
+                    or contract.get("contractType") != "PERPETUAL"
+                    or contract.get("quoteAsset") != "USDT"
+                ):
+                    continue
+                symbol = contract["symbol"]
+                ticker = ticker_by_symbol.get(symbol)
+                volume = float(ticker.get("quoteVolume", 0)) if ticker else 0.0
+                self.ticker_metrics[symbol] = {
+                    "lastPrice": float(ticker.get("lastPrice", 0)) if ticker else 0.0,
+                    "priceChangePercent": float(ticker.get("priceChangePercent", 0)) if ticker else 0.0,
+                    "quoteVolume": volume,
+                }
+                eligible.append((volume, symbol))
+            eligible.sort(key=lambda row: (-row[0], row[1]))
+            self.ticker_metrics = {symbol: self.ticker_metrics[symbol] for _, symbol in eligible}
+            return [symbol for _, symbol in eligible[:limit]]
         except Exception as e:
             print(f"[BinanceClient] Error fetching top symbols: {e}")
             return []

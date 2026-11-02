@@ -2,8 +2,10 @@ import os
 import json
 import time
 import asyncio
+import re
 from typing import Dict, Any, List, Optional
-from aiohttp import web
+import aiohttp
+from aiohttp import WSMsgType, web
 
 from config import ScannerConfig
 from binance_client import BinanceClient
@@ -14,6 +16,47 @@ from telegram_notifier import TelegramNotifier
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+
+
+MARKET_WS_TIMEFRAMES = {"15m", "1h", "4h"}
+MARKET_STALE_AFTER_SECONDS = 15.0
+MARKET_WS_POLL_SECONDS = 1.0
+MARKET_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,30}USDT$")
+
+
+async def connect_binance_ws(session: aiohttp.ClientSession, url: str):
+    return await session.ws_connect(url, heartbeat=20.0)
+
+
+def websocket_backoff_delay(attempt: int) -> int:
+    return min(2 ** max(0, attempt - 1), 30)
+
+
+def should_retry_websocket_close(code: Optional[int]) -> bool:
+    # Normal closure, going away, service restart and try-again-later are transient for this feed.
+    return code not in {1008}
+
+
+def normalize_binance_book_ticker_event(event: Dict[str, Any], timeframe: str) -> Optional[Dict[str, Any]]:
+    """Normalize Binance bookTicker to a midpoint price update."""
+    try:
+        symbol = str(event["s"]).upper()
+        bid = float(event["b"])
+        ask = float(event["a"])
+        if not MARKET_SYMBOL_RE.fullmatch(symbol) or bid <= 0 or ask < bid:
+            return None
+        return {
+            "type": "price",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "price": (bid + ask) / 2,
+            "bid": bid,
+            "ask": ask,
+            "event_time": int(event.get("E", 0)),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
 
 class WebServerState:
     def __init__(self, config: ScannerConfig):
@@ -110,6 +153,8 @@ async def handle_index(request: web.Request) -> web.Response:
 
 async def handle_api_status(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
+    if not state.client.ticker_metrics:
+        state.top_symbols = await state.client.get_top_futures_symbols(limit=state.config.top_n_coins)
     return web.json_response({
         "status": "online",
         "timeframe": state.config.timeframe,
@@ -117,6 +162,7 @@ async def handle_api_status(request: web.Request) -> web.Response:
         "min_rr": state.config.min_rr,
         "last_scan_time": state.last_scan_time,
         "is_scanning": state.is_scanning,
+        "scan_interval_seconds": state.config.scan_interval_seconds,
         "active_signals": list(state.active_signals.values()),
         "top_symbols": state.top_symbols[:15]
     })
@@ -127,7 +173,8 @@ async def handle_api_symbols(request: web.Request) -> web.Response:
         state.top_symbols = await state.client.get_top_futures_symbols(limit=state.config.top_n_coins)
     return web.json_response({
         "symbols": state.top_symbols,
-        "count": len(state.top_symbols)
+        "count": len(state.top_symbols),
+        "tickers": {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols},
     })
 
 async def handle_api_chart(request: web.Request) -> web.Response:
@@ -167,6 +214,8 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     # Format trendlines with concrete time coordinates for TV chart
     tv_trendlines = []
     n_bars = len(klines)
+    time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if n_bars > 1 else 0
+    next_time = int(klines[-1]["timestamp"] / 1000) + time_step
     for tl in trendlines:
         idx1, p1 = tl.point1
         idx2, p2 = tl.point2
@@ -184,10 +233,15 @@ async def handle_api_chart(request: web.Request) -> web.Response:
                 "price1": p1,
                 "time2": t2,
                 "price2": p2,
+                "anchor_index": idx2,
+                "point2": [idx2, p2],
+                "next_time": next_time,
                 "curr_time": curr_time,
                 "curr_price": curr_val,
+                "next_price": tl.value_at(n_bars),
                 "is_resistance": tl.is_resistance,
-                "touches": tl.touches
+                "touches": tl.touches,
+                "residual": getattr(tl, "residual", None)
             })
 
     # Check if there is an active signal for this symbol
@@ -214,6 +268,10 @@ async def handle_api_chart(request: web.Request) -> web.Response:
                 }
                 break
 
+    zone_bands = [{"bottom": lo, "top": hi, "kind": "SUPPORT_RESISTANCE"} for lo, hi in sr_zones[:4]]
+    fvg_bands = [dict(fvg) for fvg in (fvgs[-4:] if fvgs else [])]
+    for band in fvg_bands:
+        band["end_index"] = n_bars - 1
     return web.json_response({
         "symbol": symbol,
         "timeframe": timeframe,
@@ -221,7 +279,8 @@ async def handle_api_chart(request: web.Request) -> web.Response:
         "volumes": tv_volumes,
         "trendlines": tv_trendlines,
         "sr_zones": sr_zones[:4],
-        "fvgs": fvgs[-4:] if fvgs else [],
+        "zone_bands": zone_bands,
+        "fvgs": fvg_bands,
         "signal": signal_info
     })
 
@@ -255,6 +314,100 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
             pass
     finally:
         state.ws_clients.discard(ws)
+    return ws
+
+
+async def handle_market_ws(request: web.Request) -> web.StreamResponse:
+    state: WebServerState = request.app["state"]
+    symbol = request.query.get("symbol", "").upper()
+    timeframe = request.query.get("timeframe", "")
+    if timeframe not in MARKET_WS_TIMEFRAMES or not MARKET_SYMBOL_RE.fullmatch(symbol) or symbol not in state.top_symbols:
+        return web.json_response({"error": "invalid_subscription"}, status=400)
+
+    ws = web.WebSocketResponse(heartbeat=20.0)
+    await ws.prepare(request)
+    stream_url = f"wss://fstream.binance.com/ws/{symbol.lower()}@bookTicker"
+    attempt = 0
+    downstream_closed = asyncio.Event()
+
+    async def watch_downstream():
+        try:
+            async for _ in ws:
+                pass
+        finally:
+            downstream_closed.set()
+
+    downstream_task = asyncio.create_task(watch_downstream())
+    try:
+        while not ws.closed and not downstream_closed.is_set():
+            await ws.send_json({"type": "status", "state": "connecting" if attempt == 0 else "reconnecting"})
+            session = aiohttp.ClientSession()
+            upstream = None
+            try:
+                upstream = await connect_binance_ws(session, stream_url)
+                attempt = 0
+                last_event_at = time.monotonic()
+                stale_sent = False
+                await ws.send_json({"type": "status", "state": "connected"})
+                receive_task = asyncio.create_task(upstream.receive())
+                try:
+                    while not ws.closed and not downstream_closed.is_set():
+                        try:
+                            message = await asyncio.wait_for(asyncio.shield(receive_task), timeout=MARKET_WS_POLL_SECONDS)
+                            receive_task = asyncio.create_task(upstream.receive())
+                        except asyncio.TimeoutError:
+                            if not stale_sent and time.monotonic() - last_event_at >= MARKET_STALE_AFTER_SECONDS:
+                                await ws.send_json({"type": "status", "state": "stale"})
+                                stale_sent = True
+                            continue
+                        if message.type == WSMsgType.TEXT:
+                            try:
+                                payload = json.loads(message.data)
+                            except (json.JSONDecodeError, TypeError):
+                                continue
+                            normalized = normalize_binance_book_ticker_event(payload, timeframe)
+                            if normalized and normalized["symbol"] == symbol:
+                                last_event_at = time.monotonic()
+                                stale_sent = False
+                                await ws.send_json(normalized)
+                        elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR):
+                            break
+                finally:
+                    if not receive_task.done():
+                        receive_task.cancel()
+                    try:
+                        await receive_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                close_code = getattr(upstream, "close_code", None)
+                if not should_retry_websocket_close(close_code):
+                    await ws.send_json({"type": "status", "state": "error", "reason": "upstream_closed"})
+                    break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[MarketWS] {symbol} stream disconnected: {exc}")
+                if ws.closed or downstream_closed.is_set():
+                    break
+            finally:
+                if upstream is not None and not upstream.closed:
+                    await upstream.close()
+                await session.close()
+            if ws.closed or downstream_closed.is_set():
+                break
+            attempt += 1
+            await ws.send_json({"type": "status", "state": "reconnecting"})
+            await asyncio.sleep(websocket_backoff_delay(attempt))
+    finally:
+        downstream_closed.set()
+        if not downstream_task.done():
+            downstream_task.cancel()
+        try:
+            await downstream_task
+        except asyncio.CancelledError:
+            pass
+        if not ws.closed:
+            await ws.close()
     return ws
 
 async def background_scanner_loop(app: web.Application):
@@ -293,11 +446,10 @@ async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     app.router.add_get("/api/chart", handle_api_chart)
     app.router.add_post("/api/scan", handle_api_scan)
     app.router.add_get("/ws/stream", handle_ws)
+    app.router.add_get("/ws/market", handle_market_ws)
 
-    # Static assets
     os.makedirs(STATIC_DIR, exist_ok=True)
     app.router.add_static("/static", STATIC_DIR)
-
     return app
 
 def run_server(host: str = "127.0.0.1", port: int = 8766):

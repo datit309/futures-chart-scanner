@@ -211,6 +211,29 @@ class TechnicalEngine:
         trendlines.sort(key=lambda x: (x.touches, x.point2[0]), reverse=True)
         return trendlines
 
+
+    def select_strongest_trendlines(self, trendlines: List[Trendline]) -> List[Trendline]:
+        """Choose at most one support and resistance line deterministically.
+
+        Ranking: touch count (descending), anchor recency (descending), then
+        residual (ascending). Equivalent geometry is deduplicated per direction.
+        """
+        selected = []
+        for is_resistance in (True, False):
+            candidates = [line for line in trendlines if line.is_resistance is is_resistance]
+            candidates.sort(key=lambda line: (
+                -line.touches,
+                -line.point2[0],
+                float(getattr(line, "residual", float("inf"))),
+                line.point1[0],
+                line.point2[0],
+                line.point1[1],
+                line.point2[1],
+            ))
+            if candidates:
+                selected.append(candidates[0])
+        return selected
+
     def detect_sr_zones(self, klines: List[Dict[str, Any]], swings: List[SwingPoint]) -> List[Tuple[float, float]]:
         """
         Cluster swing prices to identify significant horizontal Support/Resistance bands.
