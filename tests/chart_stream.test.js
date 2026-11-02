@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -124,4 +124,21 @@ test('filterSignals partitions signals by tab filter', () => {
   assert.equal(filterSignals(sigs, 'ALL').length, 3);
   assert.deepEqual(filterSignals(sigs, 'ACTIVE'), [{id: 1, status: 'OPEN'}]);
   assert.deepEqual(filterSignals(sigs, 'HISTORY'), [{id: 2, status: 'WIN'}, {id: 3, status: 'LOSS'}]);
+});
+
+test('formatCandleCountdown computes remaining mm:ss until candle close', () => {
+  assert.equal(formatCandleCountdown(850 * 1000, '15m'), '00:50');
+  assert.equal(formatCandleCountdown(3475 * 1000, '1h'), '02:05');
+});
+
+test('structureToOverlays includes order_blocks, regression_channel, and forecast_path', () => {
+  const payload = {
+    order_blocks: [{type: 'BULLISH_OB', top: 100, bottom: 98}],
+    regression_channel: {upper_series: [{time: 1, value: 105}]},
+    forecast_path: [{time: 10, value: 102}],
+  };
+  const res = structureToOverlays(payload);
+  assert.deepEqual(res.order_blocks, payload.order_blocks);
+  assert.deepEqual(res.regression_channel, payload.regression_channel);
+  assert.deepEqual(res.forecast_path, payload.forecast_path);
 });

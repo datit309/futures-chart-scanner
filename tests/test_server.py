@@ -389,3 +389,28 @@ async def test_api_signals_and_historical_chart_endpoints(aiohttp_client, tmp_pa
     assert "candles" in chart_data
     assert len(chart_data["candles"]) == 2
     assert chart_data["signal"]["status"] == "WIN"
+
+
+@pytest.mark.asyncio
+async def test_structure_payload_includes_smc_and_forecast(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+
+    base_ts = 1793586600000
+    prices = [(100 + i * 0.5, 101 + i * 0.5, 99.5 + i * 0.5, 100.5 + i * 0.5) for i in range(30)]
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": o, "high": h, "low": l, "close": c, "volume": 100.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i, (o, h, l, c) in enumerate(prices)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m")
+    assert res.status == 200
+    payload = await res.json()
+    assert "order_blocks" in payload
+    assert "regression_channel" in payload
+    assert "forecast_path" in payload
+    reg = payload["regression_channel"]
+    assert "upper_series" in reg and "lower_series" in reg
+    assert len(reg["upper_series"]) > 0

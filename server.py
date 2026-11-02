@@ -350,6 +350,10 @@ def build_structure_payload(
     for band in fvg_bands:
         band["end_index"] = n_bars - 1
 
+    order_blocks = state.technical_engine.detect_order_blocks(klines, swings)
+    regression_channel = state.technical_engine.calculate_regression_channel(klines, window=60)
+    forecast_path = state.technical_engine.generate_forecast_path(signal_info, klines) if signal_info else []
+
     return {
         "symbol": symbol,
         "timeframe": timeframe,
@@ -357,6 +361,9 @@ def build_structure_payload(
         "sr_zones": sr_zones[:4],
         "zone_bands": zone_bands,
         "fvgs": fvg_bands,
+        "order_blocks": order_blocks,
+        "regression_channel": regression_channel or {},
+        "forecast_path": forecast_path,
         "signal": signal_info,
     }
 
@@ -401,6 +408,9 @@ async def handle_api_chart(request: web.Request) -> web.Response:
         "sr_zones": structure["sr_zones"],
         "zone_bands": structure["zone_bands"],
         "fvgs": structure["fvgs"],
+        "order_blocks": structure["order_blocks"],
+        "regression_channel": structure["regression_channel"],
+        "forecast_path": structure["forecast_path"],
         "signal": structure["signal"]
     })
 

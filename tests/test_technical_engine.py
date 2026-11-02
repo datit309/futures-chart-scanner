@@ -185,3 +185,68 @@ def test_trendline_rejects_body_piercing_and_counts_only_swing_touches():
     lines_open_pierced = engine.detect_trendlines(klines_open_pierced, swings_open_pierced, min_touches=2)
     res_open_pierced = [l for l in lines_open_pierced if l.is_resistance and l.point1[0] == 2 and l.point2[0] == 8]
     assert len(res_open_pierced) == 0, "Line must be rejected when candle open pierces above resistance!"
+
+
+def test_smc_order_blocks_and_regression_channel():
+    engine = TechnicalEngine()
+    # 20 bars:
+    # Bars 0-5: consolidation around 100. Bar 3 is a swing high (high 102).
+    # Bar 6: bearish down candle (open 99.5, close 98, low 97.5) -> candidate Order Block!
+    # Bars 7-10: strong bullish displacement breaking structure above 102 (BOS). Bar 7 closes at 102.5.
+    prices = [
+        (98, 100, 97, 99),    # 0
+        (99, 101, 98, 100),   # 1
+        (100, 101, 99, 100),  # 2
+        (100, 102, 99, 101),  # 3 - Swing High (102)
+        (101, 101.5, 99.5, 100), # 4
+        (100, 100.5, 98.5, 99),  # 5
+        (99.5, 100, 97.5, 98),   # 6 - Bearish candle before expansion (OB!)
+        (98.5, 103, 98, 102.5),  # 7 - Breakout bar closes above 102 (BOS!)
+        (102.5, 105, 102, 104.5),# 8
+        (104.5, 107, 104, 106.5),# 9
+        (106, 108, 105, 107),    # 10
+        (107, 109, 106, 108),    # 11
+        (108, 110, 107, 109),    # 12
+        (109, 111, 108, 110),    # 13
+        (110, 112, 109, 111),    # 14
+        (111, 113, 110, 112),    # 15
+        (112, 114, 111, 113),    # 16
+        (113, 115, 112, 114),    # 17
+        (114, 116, 113, 115),    # 18
+        (115, 117, 114, 116),    # 19
+    ]
+    klines = create_synthetic_klines(prices)
+    swings = engine.find_swing_points(klines, window=2)
+
+    # 1. Test Order Blocks
+    order_blocks = engine.detect_order_blocks(klines, swings)
+    assert len(order_blocks) > 0
+    bullish_obs = [ob for ob in order_blocks if ob["type"] == "BULLISH_OB"]
+    assert len(bullish_obs) > 0
+    latest_ob = bullish_obs[-1]
+    assert latest_ob["index"] == 6
+    assert latest_ob["bottom"] == 97.5
+    assert latest_ob["top"] == 99.5
+
+    # 2. Test Linear Regression Channel
+    channel = engine.calculate_regression_channel(klines, window=15)
+    assert channel is not None
+    assert channel["slope"] > 0, "Steadily rising price must produce positive slope"
+    assert channel["upper"] > channel["middle"] > channel["lower"]
+    assert channel["std_dev"] > 0
+
+    # 3. Test Forecast Trajectory
+    dummy_signal = type("DummySignal", (), {
+        "signal_type": "LONG",
+        "entry_price": 116.0,
+        "stop_loss": 113.0,
+        "take_profit": 122.0,
+        "extra_targets": {"tp1": 120.5, "tp2": 122.0}
+    })()
+    forecast = engine.generate_forecast_path(dummy_signal, klines)
+    assert len(forecast) >= 3
+    # Step 0: current bar
+    assert forecast[0]["value"] == 116.0
+    # Last step: target
+    assert forecast[-1]["value"] >= 120.0
+    assert forecast[-1]["time"] > forecast[0]["time"]

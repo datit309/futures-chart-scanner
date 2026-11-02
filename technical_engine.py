@@ -395,3 +395,135 @@ class TechnicalEngine:
                         ))
 
         return signals
+
+    def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint]) -> List[Dict[str, Any]]:
+        """
+        Detect Institutional Order Blocks (SMC):
+        - Bullish OB: The last down candle (close < open) prior to an aggressive upward break of structure.
+        - Bearish OB: The last up candle (close > open) prior to an aggressive downward break of structure.
+        """
+        n = len(klines)
+        if n < 8 or not swings:
+            return []
+
+        swing_highs = [s for s in swings if s.is_high]
+        swing_lows = [s for s in swings if not s.is_high]
+        order_blocks = []
+
+        # Bullish OBs
+        for idx in range(3, n):
+            c = klines[idx]["close"]
+            prev_c = klines[idx - 1]["close"]
+            recent_highs = [sh for sh in swing_highs if sh.index < idx and sh.index >= idx - 25]
+            if recent_highs:
+                last_sh = recent_highs[-1]
+                if prev_c <= last_sh.price and c > last_sh.price:
+                    candidates = [
+                        (k_i, klines[k_i]) for k_i in range(last_sh.index, idx)
+                        if klines[k_i]["close"] < klines[k_i]["open"]
+                    ]
+                    if candidates:
+                        ob_idx, ob_candle = min(candidates, key=lambda x: x[1]["low"])
+                        order_blocks.append({
+                            "type": "BULLISH_OB",
+                            "index": ob_idx,
+                            "top": max(ob_candle["open"], ob_candle["close"]),
+                            "bottom": ob_candle["low"],
+                            "timestamp": ob_candle["timestamp"],
+                            "label": "OB Demand",
+                        })
+
+        # Bearish OBs
+        for idx in range(3, n):
+            c = klines[idx]["close"]
+            prev_c = klines[idx - 1]["close"]
+            recent_lows = [sl for sl in swing_lows if sl.index < idx and sl.index >= idx - 25]
+            if recent_lows:
+                last_sl = recent_lows[-1]
+                if prev_c >= last_sl.price and c < last_sl.price:
+                    candidates = [
+                        (k_i, klines[k_i]) for k_i in range(last_sl.index, idx)
+                        if klines[k_i]["close"] > klines[k_i]["open"]
+                    ]
+                    if candidates:
+                        ob_idx, ob_candle = max(candidates, key=lambda x: x[1]["high"])
+                        order_blocks.append({
+                            "type": "BEARISH_OB",
+                            "index": ob_idx,
+                            "top": ob_candle["high"],
+                            "bottom": min(ob_candle["open"], ob_candle["close"]),
+                            "timestamp": ob_candle["timestamp"],
+                            "label": "OB Supply",
+                        })
+
+        seen = set()
+        unique_obs = []
+        for ob in reversed(order_blocks):
+            key = (ob["type"], ob["index"])
+            if key not in seen:
+                seen.add(key)
+                unique_obs.append(ob)
+        unique_obs.reverse()
+        return unique_obs[-4:]
+
+    def calculate_regression_channel(self, klines: List[Dict[str, Any]], window: int = 60) -> Optional[Dict[str, Any]]:
+        """
+        Calculate Statistical Linear Regression Channel (with +-2 standard deviation bands).
+        """
+        n = len(klines)
+        if n < 10:
+            return None
+        w = min(window, n)
+        subset = klines[-w:]
+        x = np.arange(w)
+        closes = np.array([float(k["close"]) for k in subset])
+        slope, intercept = np.polyfit(x, closes, 1)
+        fitted = slope * x + intercept
+        residuals = closes - fitted
+        std_dev = float(np.std(residuals))
+
+        upper_series = []
+        middle_series = []
+        lower_series = []
+
+        for i, k in enumerate(subset):
+            t_sec = int(k["timestamp"] / 1000)
+            mid_val = float(fitted[i])
+            upper_series.append({"time": t_sec, "value": round(mid_val + 2 * std_dev, 4)})
+            middle_series.append({"time": t_sec, "value": round(mid_val, 4)})
+            lower_series.append({"time": t_sec, "value": round(mid_val - 2 * std_dev, 4)})
+
+        curr_mid = float(fitted[-1])
+        return {
+            "slope": float(slope),
+            "intercept": float(intercept),
+            "std_dev": std_dev,
+            "upper": round(curr_mid + 2 * std_dev, 4),
+            "middle": round(curr_mid, 4),
+            "lower": round(curr_mid - 2 * std_dev, 4),
+            "upper_series": upper_series,
+            "middle_series": middle_series,
+            "lower_series": lower_series,
+        }
+
+    def generate_forecast_path(self, signal: Any, klines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Generate projected price trajectory path into future bars.
+        Points: [Current Close -> Retest (+1 bar) -> Target (+3 bars)]
+        """
+        if not klines:
+            return []
+        last_k = klines[-1]
+        t_sec = int(last_k["timestamp"] / 1000)
+        time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if len(klines) > 1 else 900
+
+        entry = float(getattr(signal, "entry_price", last_k["close"]))
+        tp1 = float(getattr(signal, "extra_targets", {}).get("tp1") or getattr(signal, "take_profit", entry * 1.015))
+        is_long = getattr(signal, "signal_type", "LONG") == "LONG"
+
+        retest = entry - (entry - float(getattr(signal, "stop_loss", entry))) * 0.15 if is_long else entry + (float(getattr(signal, "stop_loss", entry)) - entry) * 0.15
+        return [
+            {"time": t_sec, "value": round(last_k["close"], 4), "stage": "NOW"},
+            {"time": t_sec + time_step, "value": round(retest, 4), "stage": "RETEST"},
+            {"time": t_sec + time_step * 3, "value": round(tp1, 4), "stage": "TARGET"},
+        ]
