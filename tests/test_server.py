@@ -282,6 +282,51 @@ async def test_signal_socket_close_does_not_override_market_state(aiohttp_client
 
 
 @pytest.mark.asyncio
+async def test_structure_payload_trendlines_have_realistic_touches(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+
+    # 16 bars with clear descending swing highs
+    base_ts = 1793586600000
+    prices = [
+        (96, 98, 95, 97),   # 0
+        (97, 99, 96, 98),   # 1
+        (98, 100, 97, 99),  # 2 - SWING HIGH 1 (100)
+        (96, 97, 94, 95),   # 3
+        (93, 97.5, 92, 94), # 4
+        (93, 96.95, 92, 94),# 5
+        (91, 93.5, 90, 92), # 6
+        (90, 92, 89, 91),   # 7
+        (91, 94, 90, 93),   # 8 - SWING HIGH 2 (94)
+        (90, 92, 89, 91),   # 9
+        (89, 91, 88, 90),   # 10
+        (88, 90, 87, 89),   # 11
+        (87, 88, 85, 86),   # 12
+        (86, 88, 85, 87),   # 13
+        (86, 88, 85, 87),   # 14
+        (85, 86, 84, 85),   # 15
+    ]
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": o, "high": h, "low": l, "close": c, "volume": 100.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i, (o, h, l, c) in enumerate(prices)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m")
+    assert res.status == 200
+    payload = await res.json()
+    assert "trendlines" in payload
+    # Every trendline emitted MUST have a realistic touch count (< 10)
+    for tl in payload["trendlines"]:
+        assert tl["touches"] >= 2
+        assert tl["touches"] <= 6, f"Touch count {tl['touches']} is too high for a 16-bar series!"
+        assert "residual" in tl
+        assert "next_price" in tl
+
+
+
+@pytest.mark.asyncio
 async def test_dashboard_exposes_realtime_chart_controls(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1))
     client = await aiohttp_client(app)

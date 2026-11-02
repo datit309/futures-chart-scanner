@@ -105,48 +105,56 @@ class TechnicalEngine:
         high_swings = [s for s in swings if s.is_high]
         low_swings = [s for s in swings if not s.is_high]
 
-        # 1. Resistance / Downtrend lines (connecting Swing Highs)
+        # 1. Resistance lines (connecting Swing Highs)
         for i in range(len(high_swings)):
             for j in range(i + 1, len(high_swings)):
                 p1, p2 = high_swings[i], high_swings[j]
-                if p2.index - p1.index < 3:
+                dx = p2.index - p1.index
+                if dx < 3:
                     continue
-                # Downward slope (resistance)
-                slope = (p2.price - p1.price) / (p2.index - p1.index)
+                slope = (p2.price - p1.price) / dx
                 intercept = p1.price - slope * p1.index
 
-                # Resistance lines should slope downwards or slightly flat
+                # Resistance lines should slope downwards or align with channel
                 if slope > 0.05 * (p1.price / n_bars):
                     continue
 
-                # Check violations (no candle CLOSE should pierce above the line between p1 and p2)
+                # Strict violation check from p1 up to bar before current:
+                # Candle body (max(open, close)) must NOT pierce above the line!
                 violated = False
-                for bar_idx in range(p1.index, p2.index + 1):
+                for bar_idx in range(p1.index, n_bars - 1):
                     line_val = slope * bar_idx + intercept
-                    if klines[bar_idx]["close"] > line_val * (1 + tol):
+                    body_top = max(klines[bar_idx]["open"], klines[bar_idx]["close"])
+                    high_val = klines[bar_idx]["high"]
+                    if body_top > line_val * (1 + tol):
+                        violated = True
+                        break
+                    if high_val > line_val * (1 + tol * 1.5):
                         violated = True
                         break
                 if violated:
                     continue
 
-                # Count touches along the entire line up to the bar before current
-                touches = 0
-                touch_indices = []
-                for bar_idx in range(p1.index, n_bars - 1):
-                    line_val = slope * bar_idx + intercept
-                    high_val = klines[bar_idx]["high"]
-                    # Touch if wick came close to line
+                # Count touches: anchors p1 and p2, plus any distinct peak testing the line
+                touch_indices = [p1.index, p2.index]
+                for b in range(p1.index + 1, n_bars - 1):
+                    if b in touch_indices:
+                        continue
+                    line_val = slope * b + intercept
+                    high_val = klines[bar_idx := b]["high"]
                     if abs(high_val - line_val) / line_val <= tol:
-                        touches += 1
-                        touch_indices.append(bar_idx)
-                    elif klines[bar_idx]["close"] > line_val * (1 + tol):
-                        # Pierced before the latest bars
-                        violated = True
-                        break
+                        is_peak = high_val >= klines[b - 1]["high"] and (b == n_bars - 2 or high_val >= klines[b + 1]["high"])
+                        if is_peak and all(abs(b - tb) >= 3 for tb in touch_indices):
+                            touch_indices.append(b)
 
-                if not violated and touches >= req_touches:
+                touch_indices = sorted(set(touch_indices))
+                touches = len(touch_indices)
+
+                if touches >= req_touches:
                     curr_val = slope * (n_bars - 1) + intercept
-                    trendlines.append(Trendline(
+                    residuals = [abs(klines[b]["high"] - (slope * b + intercept)) / (slope * b + intercept) for b in touch_indices]
+                    avg_residual = sum(residuals) / len(residuals) if residuals else 0.0
+                    tl = Trendline(
                         point1=(p1.index, p1.price),
                         point2=(p2.index, p2.price),
                         slope=slope,
@@ -155,48 +163,60 @@ class TechnicalEngine:
                         is_resistance=True,
                         current_value=curr_val,
                         touch_indices=touch_indices
-                    ))
+                    )
+                    tl.residual = avg_residual
+                    trendlines.append(tl)
 
-        # 2. Support / Uptrend lines (connecting Swing Lows)
+        # 2. Support lines (connecting Swing Lows)
         for i in range(len(low_swings)):
             for j in range(i + 1, len(low_swings)):
                 p1, p2 = low_swings[i], low_swings[j]
-                if p2.index - p1.index < 3:
+                dx = p2.index - p1.index
+                if dx < 3:
                     continue
-                # Upward slope (support)
-                slope = (p2.price - p1.price) / (p2.index - p1.index)
+                slope = (p2.price - p1.price) / dx
                 intercept = p1.price - slope * p1.index
 
-                # Support lines should slope upwards or slightly flat
+                # Support lines should slope upwards or align with channel
                 if slope < -0.05 * (p1.price / n_bars):
                     continue
 
-                # Check violations
+                # Strict violation check:
+                # Candle body (min(open, close)) must NOT pierce below the line!
                 violated = False
-                for bar_idx in range(p1.index, p2.index + 1):
+                for bar_idx in range(p1.index, n_bars - 1):
                     line_val = slope * bar_idx + intercept
-                    if klines[bar_idx]["close"] < line_val * (1 - tol):
+                    body_bottom = min(klines[bar_idx]["open"], klines[bar_idx]["close"])
+                    low_val = klines[bar_idx]["low"]
+                    if body_bottom < line_val * (1 - tol):
+                        violated = True
+                        break
+                    if low_val < line_val * (1 - tol * 1.5):
                         violated = True
                         break
                 if violated:
                     continue
 
-                # Count touches
-                touches = 0
-                touch_indices = []
-                for bar_idx in range(p1.index, n_bars - 1):
-                    line_val = slope * bar_idx + intercept
-                    low_val = klines[bar_idx]["low"]
+                # Count touches: anchors p1 and p2, plus any distinct trough testing the line
+                touch_indices = [p1.index, p2.index]
+                for b in range(p1.index + 1, n_bars - 1):
+                    if b in touch_indices:
+                        continue
+                    line_val = slope * b + intercept
+                    low_val = klines[bar_idx := b]["low"]
                     if abs(low_val - line_val) / line_val <= tol:
-                        touches += 1
-                        touch_indices.append(bar_idx)
-                    elif klines[bar_idx]["close"] < line_val * (1 - tol):
-                        violated = True
-                        break
+                        is_trough = low_val <= klines[b - 1]["low"] and (b == n_bars - 2 or low_val <= klines[b + 1]["low"])
+                        if is_trough and all(abs(b - tb) >= 3 for tb in touch_indices):
+                            touch_indices.append(b)
 
-                if not violated and touches >= req_touches:
+                touch_indices = sorted(set(touch_indices))
+                touches = len(touch_indices)
+
+                if touches >= req_touches:
                     curr_val = slope * (n_bars - 1) + intercept
-                    trendlines.append(Trendline(
+                    residuals = [abs(klines[b]["low"] - (slope * b + intercept)) / (slope * b + intercept) for b in touch_indices]
+                    avg_residual = sum(residuals) / len(residuals) if residuals else 0.0
+                    tl = Trendline(
                         point1=(p1.index, p1.price),
                         point2=(p2.index, p2.price),
                         slope=slope,
@@ -205,25 +225,35 @@ class TechnicalEngine:
                         is_resistance=False,
                         current_value=curr_val,
                         touch_indices=touch_indices
-                    ))
+                    )
+                    tl.residual = avg_residual
+                    trendlines.append(tl)
 
         # Sort by most touches and freshness
         trendlines.sort(key=lambda x: (x.touches, x.point2[0]), reverse=True)
         return trendlines
 
 
-    def select_strongest_trendlines(self, trendlines: List[Trendline]) -> List[Trendline]:
-        """Choose at most one support and resistance line deterministically.
+    def select_strongest_trendlines(self, trendlines: List[Trendline], n_bars: Optional[int] = None) -> List[Trendline]:
+        """Choose at most one active support and resistance line deterministically.
 
-        Ranking: touch count (descending), anchor recency (descending), then
-        residual (ascending). Equivalent geometry is deduplicated per direction.
+        Ranking prioritizes:
+        1. Active relevance (anchor 2 in recent price action vs ancient history).
+        2. Touch validation (lines with confirmed touches).
+        3. Touch count (descending).
+        4. Span (longer baseline is more reliable).
+        5. Minimal residual error.
         """
         selected = []
+        recency_threshold = (n_bars - 40) if n_bars and n_bars > 50 else -1
+
         for is_resistance in (True, False):
             candidates = [line for line in trendlines if line.is_resistance is is_resistance]
             candidates.sort(key=lambda line: (
+                -1 if (recency_threshold > 0 and line.point2[0] >= recency_threshold) else 0,
                 -line.touches,
                 -line.point2[0],
+                -(line.point2[0] - line.point1[0]),
                 float(getattr(line, "residual", float("inf"))),
                 line.point1[0],
                 line.point2[0],
