@@ -1,24 +1,10 @@
 import asyncio
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from aiohttp import WSMsgType
 
 from config import ScannerConfig
 from server import create_app
-
-
-def book_ticker_event():
-    return {"e": "bookTicker", "E": 123456, "s": "BTCUSDT", "b": "10", "B": "2", "a": "12", "A": "3"}
-
-
-def test_book_ticker_normalizes_to_live_midprice():
-    from server import normalize_binance_book_ticker_event
-    assert normalize_binance_book_ticker_event(book_ticker_event(), "15m") == {
-        "type": "price", "symbol": "BTCUSDT", "timeframe": "15m",
-        "price": 11.0, "bid": 10.0, "ask": 12.0, "event_time": 123456,
-    }
 
 
 @pytest.mark.asyncio
@@ -109,83 +95,172 @@ async def test_market_websocket_rejects_bad_timeframe_and_unknown_symbol(aiohttp
 
 
 @pytest.mark.asyncio
-async def test_market_websocket_marks_silent_upstream_stale(aiohttp_client):
+async def test_market_websocket_marks_silent_polls_stale(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1))
     app["state"].top_symbols = ["BTCUSDT"]
-    class SilentUpstream:
-        close_code = 1000
-        closed = False
-        close = AsyncMock()
-        async def receive(self):
-            await asyncio.sleep(0.08)
-            if not hasattr(self, "sent"):
-                self.sent = True
-                return type("WSMessage", (), {"type": WSMsgType.TEXT, "data": json.dumps(book_ticker_event())})()
-            return type("WSMessage", (), {"type": WSMsgType.CLOSED, "data": ""})()
-    upstream = SilentUpstream()
-    with patch("server.connect_binance_ws", new=AsyncMock(return_value=upstream)), patch("server.MARKET_STALE_AFTER_SECONDS", 0.04, create=True), patch("server.MARKET_WS_POLL_SECONDS", 0.01, create=True):
+
+    async def failing_get_klines(symbol, interval="15m", limit=100):
+        await asyncio.sleep(0.01)
+        raise RuntimeError("simulated Binance REST outage")
+
+    app["state"].client.get_klines = failing_get_klines
+    with patch("server.MARKET_STALE_AFTER_SECONDS", 0.04, create=True), patch("server.MARKET_WS_POLL_SECONDS", 0.01, create=True):
         client = await aiohttp_client(app)
         ws = await client.ws_connect("/ws/market?symbol=BTCUSDT&timeframe=15m")
         states=[]
-        for _ in range(8):
-            message=await ws.receive_json(timeout=1)
+        for _ in range(20):
+            message=await ws.receive_json(timeout=2)
             if message.get("type")=="status": states.append(message["state"])
-            if message.get("type")=="price": break
-        assert "stale" in states
+            if "stale" in states: break
+        assert "stale" in states, f"expected stale status, got {states}"
         await ws.close()
 
 
 @pytest.mark.asyncio
-async def test_market_websocket_relays_bookticker_and_closes_upstream(aiohttp_client):
+async def test_market_websocket_polls_rest_klines_and_cleans_up(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1))
     state = app["state"]
     state.top_symbols = ["BTCUSDT"]
-    class FakeUpstream:
-        close_code = 1000
-        closed = False
-        close = AsyncMock()
-        def __init__(self): self.messages = [
-            type("WSMessage", (), {"type": WSMsgType.TEXT, "data": json.dumps(book_ticker_event())})(),
-            type("WSMessage", (), {"type": WSMsgType.CLOSED, "data": ""})(),
+    poll_calls = {"n": 0}
+
+    async def fake_get_klines(symbol, interval="15m", limit=100):
+        poll_calls["n"] += 1
+        # real OHLC shape from Binance REST /fapi/v1/klines
+        base_ts = 1793586600000
+        return [
+            {"timestamp": base_ts - 900000, "open": 78400.0, "high": 78500.0, "low": 78300.0, "close": 78480.0, "volume": 40.0, "close_time": base_ts - 1},
+            {"timestamp": base_ts, "open": 78480.0, "high": 78520.0, "low": 78480.0, "close": 78500.0, "volume": 50.0, "close_time": base_ts + 899999},
         ]
-        async def receive(self):
-            await asyncio.sleep(0)
-            return self.messages.pop(0) if self.messages else type("WSMessage", (), {"type": WSMsgType.CLOSED, "data": ""})()
-    fake_upstream = FakeUpstream()
-    with patch("server.connect_binance_ws", new=AsyncMock(return_value=fake_upstream)):
+
+    closed_sessions = []
+    original_close = state.client.close
+
+    async def tracking_close():
+        closed_sessions.append(True)
+        await original_close()
+
+    state.client.get_klines = fake_get_klines
+    with patch("server.MARKET_WS_POLL_SECONDS", 0.02, create=True):
         client = await aiohttp_client(app)
         ws = await client.ws_connect("/ws/market?symbol=BTCUSDT&timeframe=15m")
-        while True:
-            message = await ws.receive_json(timeout=2)
-            if message.get("type") == "price": break
-        assert message["price"] == 11.0
+        # status messages precede the first kline
+        message = None
+        for _ in range(6):
+            message = await ws.receive_json(timeout=3)
+            if message.get("type") == "kline":
+                break
+        assert message is not None and message["type"] == "kline", f"expected kline, got {message}"
+        candle = message["candle"]
+        assert candle["open"] == 78480.0
+        assert candle["high"] == 78520.0
+        assert candle["low"] == 78480.0
+        assert candle["close"] == 78500.0
+        assert candle["volume"] == 50.0
+        assert candle["time"] == 1793586600
+        assert poll_calls["n"] >= 1
         await ws.close()
-        await asyncio.sleep(0)
-        fake_upstream.close.assert_awaited()
+        # poll loop must stop after downstream disconnect (no leaked task)
+        polls_at_close = poll_calls["n"]
+        await asyncio.sleep(0.1)
+        assert poll_calls["n"] == polls_at_close, "poll loop must stop after downstream disconnect"
 
 
 @pytest.mark.asyncio
-async def test_market_websocket_status_transitions(aiohttp_client):
+async def test_market_websocket_survives_poll_failures(aiohttp_client):
+    """Poll failures must not kill the connection — it retries and recovers."""
     app = await create_app(ScannerConfig(top_n_coins=1))
     app["state"].top_symbols = ["BTCUSDT"]
-    class PolicyCloseUpstream:
-        close_code = 1008
-        closed = False
-        close = AsyncMock()
-        async def receive(self):
-            return type("WSMessage", (), {"type": WSMsgType.CLOSED, "data": ""})()
-    fake_upstream = PolicyCloseUpstream()
-    with patch("server.connect_binance_ws", new=AsyncMock(return_value=fake_upstream)):
+    calls = {"n": 0}
+
+    async def flaky_get_klines(symbol, interval="15m", limit=100):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise RuntimeError("simulated Binance REST outage")
+        base_ts = 1793586600000
+        return [{"timestamp": base_ts, "open": 78480.0, "high": 78520.0, "low": 78480.0, "close": 78500.0, "volume": 50.0, "close_time": base_ts + 899999}]
+
+    app["state"].client.get_klines = flaky_get_klines
+    with patch("server.MARKET_WS_POLL_SECONDS", 0.02, create=True):
         client = await aiohttp_client(app)
         ws = await client.ws_connect("/ws/market?symbol=BTCUSDT&timeframe=15m")
-        states = []
-        while True:
-            item = await ws.receive_json(timeout=2)
-            if item.get("type") == "status": states.append(item["state"])
-            if item.get("state") == "error": break
-        assert "connecting" in states and "connected" in states
-        assert states[-1] == "error"
+        got_kline = False
+        for _ in range(20):
+            message = await ws.receive_json(timeout=3)
+            if message.get("type") == "kline":
+                got_kline = True
+                break
+        assert got_kline, "connection must recover after transient poll failures"
+        assert calls["n"] >= 3
         await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_market_websocket_emits_structure_from_technical_engine(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+
+    async def fake_get_klines(symbol, interval="15m", limit=100):
+        # downtrend with a clear swing structure so the engine finds trendlines
+        base_ts = 1793586600000
+        prices = [100, 99, 98, 99, 97, 96, 97, 95, 94, 95, 93, 92, 93, 91, 90]
+        out = []
+        for i, p in enumerate(prices):
+            ts = base_ts - (len(prices) - i) * 900000
+            out.append({
+                "timestamp": ts,
+                "open": float(p + 0.5),
+                "high": float(p + 1.5),
+                "low": float(p - 1.5),
+                "close": float(p),
+                "volume": 100.0,
+                "close_time": ts + 899999,
+            })
+        return out[-2:] if limit == 2 else out
+
+    state.client.get_klines = fake_get_klines
+    with patch("server.MARKET_WS_POLL_SECONDS", 0.02, create=True):
+        client = await aiohttp_client(app)
+        ws = await client.ws_connect("/ws/market?symbol=BTCUSDT&timeframe=15m")
+        structure = None
+        for _ in range(10):
+            message = await ws.receive_json(timeout=3)
+            if message.get("type") == "structure":
+                structure = message
+                break
+        assert structure is not None, "expected a structure message"
+        assert structure["symbol"] == "BTCUSDT"
+        assert structure["timeframe"] == "15m"
+        assert "trendlines" in structure and isinstance(structure["trendlines"], list)
+        assert "zone_bands" in structure
+        assert "fvgs" in structure
+        await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_market_ws_close_during_poll_cleans_up(aiohttp_client):
+    """Downstream close while a slow poll is in flight must stop the loop and not leak."""
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+    started = asyncio.Event()
+
+    async def hanging_get_klines(symbol, interval="15m", limit=100):
+        started.set()
+        await asyncio.sleep(30)  # simulate a hung upstream request
+        return []
+
+    state.client.get_klines = hanging_get_klines
+    with patch("server.MARKET_WS_POLL_SECONDS", 0.02, create=True):
+        client = await aiohttp_client(app)
+        ws = await client.ws_connect("/ws/market?symbol=BTCUSDT&timeframe=15m")
+        await started.wait()
+        # close while the poll is still in flight
+        await ws.close()
+        await asyncio.sleep(0.1)
+        # if the poll loop leaked, this task would still be pending; nothing to assert
+        # beyond the server not raising — the websocket handler must return cleanly.
+        assert ws.closed
 
 
 def test_server_close_policy_retries_transient_and_normal_closes():

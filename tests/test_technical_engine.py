@@ -96,3 +96,22 @@ def test_select_strongest_trendlines_breaks_ties_by_residual():
     selected = engine.select_strongest_trendlines([worse, better])
     assert len(selected) == 1
     assert selected[0].residual == 0.001
+
+
+def test_detect_sr_zones_clusters_nearby_swings():
+    engine = TechnicalEngine()
+    # Cluster A: 100.0, 100.3, 100.6 (within 0.6% of the running mean) -> one zone.
+    # Cluster B: 80.0, 80.2 -> separate zone. Distant swings stay separate.
+    swings = [
+        SwingPoint(index=2, price=100.0, is_high=True, timestamp=1),
+        SwingPoint(index=5, price=100.3, is_high=True, timestamp=2),
+        SwingPoint(index=8, price=100.6, is_high=True, timestamp=3),
+        SwingPoint(index=12, price=80.0, is_high=False, timestamp=4),
+        SwingPoint(index=15, price=80.2, is_high=False, timestamp=5),
+    ]
+    zones = engine.detect_sr_zones([], swings)
+    assert len(zones) == 2, f"expected 2 clustered zones, got {zones}"
+    lows = [min(z) for z in zones]
+    highs = [max(z) for z in zones]
+    assert any(abs(lo - 80.0) < 0.01 for lo in lows)
+    assert any(abs(hi - 100.6) < 0.01 for hi in highs)

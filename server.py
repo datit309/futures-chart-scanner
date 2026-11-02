@@ -4,8 +4,8 @@ import time
 import asyncio
 import re
 from typing import Dict, Any, List, Optional
-import aiohttp
-from aiohttp import WSMsgType, web
+from aiohttp import web
+from aiohttp.client_exceptions import ClientConnectionResetError
 
 from config import ScannerConfig
 from binance_client import BinanceClient
@@ -21,12 +21,8 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 MARKET_WS_TIMEFRAMES = {"15m", "1h", "4h"}
 MARKET_STALE_AFTER_SECONDS = 15.0
-MARKET_WS_POLL_SECONDS = 1.0
+MARKET_WS_POLL_SECONDS = 3.0
 MARKET_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,30}USDT$")
-
-
-async def connect_binance_ws(session: aiohttp.ClientSession, url: str):
-    return await session.ws_connect(url, heartbeat=20.0)
 
 
 def websocket_backoff_delay(attempt: int) -> int:
@@ -38,25 +34,33 @@ def should_retry_websocket_close(code: Optional[int]) -> bool:
     return code not in {1008}
 
 
-def normalize_binance_book_ticker_event(event: Dict[str, Any], timeframe: str) -> Optional[Dict[str, Any]]:
-    """Normalize Binance bookTicker to a midpoint price update."""
+def normalize_kline_dict(kline: Dict[str, Any], symbol: str, timeframe: str) -> Optional[Dict[str, Any]]:
+    """Convert an internal OHLCV kline dict into a websocket candle payload."""
     try:
-        symbol = str(event["s"]).upper()
-        bid = float(event["b"])
-        ask = float(event["a"])
-        if not MARKET_SYMBOL_RE.fullmatch(symbol) or bid <= 0 or ask < bid:
+        open_time = int(kline["timestamp"])
+        o, h, low, close, volume = (
+            float(kline[key]) for key in ("open", "high", "low", "close", "volume")
+        )
+        if min(o, h, low, close, volume) < 0 or h < max(o, close, low) or low > min(o, close):
             return None
         return {
-            "type": "price",
+            "type": "kline",
             "symbol": symbol,
             "timeframe": timeframe,
-            "price": (bid + ask) / 2,
-            "bid": bid,
-            "ask": ask,
-            "event_time": int(event.get("E", 0)),
+            "candle": {
+                "time": open_time // 1000,
+                "open": o,
+                "high": h,
+                "low": low,
+                "close": close,
+                "volume": volume,
+                "closed": False,
+            },
         }
     except (KeyError, TypeError, ValueError):
         return None
+
+
 
 class WebServerState:
     def __init__(self, config: ScannerConfig):
@@ -177,6 +181,81 @@ async def handle_api_symbols(request: web.Request) -> web.Response:
         "tickers": {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols},
     })
 
+def build_structure_payload(
+    state: "WebServerState",
+    klines: List[Dict[str, Any]],
+    symbol: str,
+    timeframe: str,
+) -> Dict[str, Any]:
+    """Compute market structure (trendlines, zones, FVGs, signal) from klines."""
+    swings = state.technical_engine.find_swing_points(klines)
+    trendlines = state.technical_engine.detect_trendlines(klines, swings)
+    sr_zones = state.technical_engine.detect_sr_zones(klines, swings)
+    fvgs = state.technical_engine.detect_fvg(klines)
+
+    n_bars = len(klines)
+    time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if n_bars > 1 else 0
+    next_time = int(klines[-1]["timestamp"] / 1000) + time_step
+
+    tv_trendlines = []
+    for tl in trendlines:
+        idx1, p1 = tl.point1
+        idx2, p2 = tl.point2
+        if idx1 < n_bars and idx2 < n_bars:
+            tv_trendlines.append({
+                "time1": int(klines[idx1]["timestamp"] / 1000),
+                "price1": p1,
+                "time2": int(klines[idx2]["timestamp"] / 1000),
+                "price2": p2,
+                "anchor_index": idx2,
+                "point2": [idx2, p2],
+                "next_time": next_time,
+                "curr_time": int(klines[n_bars - 1]["timestamp"] / 1000),
+                "curr_price": tl.value_at(n_bars - 1),
+                "next_price": tl.value_at(n_bars),
+                "is_resistance": tl.is_resistance,
+                "touches": tl.touches,
+                "residual": getattr(tl, "residual", None),
+            })
+
+    signal_info = state.active_signals.get(symbol)
+    if not signal_info:
+        for raw_sig in state.technical_engine.analyze_market(klines, symbol=symbol, timeframe=timeframe):
+            enriched = state.risk_manager.validate_and_enrich(raw_sig)
+            if enriched:
+                signal_info = {
+                    "symbol": enriched.symbol,
+                    "timeframe": enriched.timeframe,
+                    "signal_type": enriched.signal_type,
+                    "pattern": enriched.pattern.value if hasattr(enriched.pattern, "value") else str(enriched.pattern),
+                    "entry_price": enriched.entry_price,
+                    "stop_loss": enriched.stop_loss,
+                    "take_profit": enriched.take_profit,
+                    "tp1": enriched.extra_targets.get("tp1", enriched.take_profit),
+                    "tp2": enriched.extra_targets.get("tp2", enriched.take_profit),
+                    "risk_reward": enriched.risk_reward,
+                    "sl_pct": enriched.sl_pct,
+                    "description": enriched.description,
+                    "timestamp": time.time(),
+                }
+                break
+
+    zone_bands = [{"bottom": lo, "top": hi, "kind": "SUPPORT_RESISTANCE"} for lo, hi in sr_zones[:4]]
+    fvg_bands = [dict(fvg) for fvg in (fvgs[-4:] if fvgs else [])]
+    for band in fvg_bands:
+        band["end_index"] = n_bars - 1
+
+    return {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "trendlines": tv_trendlines,
+        "sr_zones": sr_zones[:4],
+        "zone_bands": zone_bands,
+        "fvgs": fvg_bands,
+        "signal": signal_info,
+    }
+
+
 async def handle_api_chart(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     symbol = request.query.get("symbol", "BTCUSDT").upper()
@@ -187,10 +266,7 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     if not klines:
         return web.json_response({"error": f"Không lấy được nến cho {symbol}"}, status=404)
 
-    swings = state.technical_engine.find_swing_points(klines)
-    trendlines = state.technical_engine.detect_trendlines(klines, swings)
-    sr_zones = state.technical_engine.detect_sr_zones(klines, swings)
-    fvgs = state.technical_engine.detect_fvg(klines)
+    structure = build_structure_payload(state, klines, symbol, timeframe)
 
     # Format klines for Lightweight Charts: { time: seconds, open, high, low, close, volume }
     tv_candles = []
@@ -211,77 +287,16 @@ async def handle_api_chart(request: web.Request) -> web.Response:
             "color": "rgba(14, 203, 129, 0.45)" if is_bull else "rgba(246, 70, 93, 0.45)"
         })
 
-    # Format trendlines with concrete time coordinates for TV chart
-    tv_trendlines = []
-    n_bars = len(klines)
-    time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if n_bars > 1 else 0
-    next_time = int(klines[-1]["timestamp"] / 1000) + time_step
-    for tl in trendlines:
-        idx1, p1 = tl.point1
-        idx2, p2 = tl.point2
-        if idx1 < n_bars and idx2 < n_bars:
-            t1 = int(klines[idx1]["timestamp"] / 1000)
-            t2 = int(klines[idx2]["timestamp"] / 1000)
-            
-            # Project line to the current bar
-            curr_idx = n_bars - 1
-            curr_time = int(klines[curr_idx]["timestamp"] / 1000)
-            curr_val = tl.value_at(curr_idx)
-
-            tv_trendlines.append({
-                "time1": t1,
-                "price1": p1,
-                "time2": t2,
-                "price2": p2,
-                "anchor_index": idx2,
-                "point2": [idx2, p2],
-                "next_time": next_time,
-                "curr_time": curr_time,
-                "curr_price": curr_val,
-                "next_price": tl.value_at(n_bars),
-                "is_resistance": tl.is_resistance,
-                "touches": tl.touches,
-                "residual": getattr(tl, "residual", None)
-            })
-
-    # Check if there is an active signal for this symbol
-    signal_info = state.active_signals.get(symbol)
-    if not signal_info:
-        raw_signals = state.technical_engine.analyze_market(klines, symbol=symbol, timeframe=timeframe)
-        for raw_sig in raw_signals:
-            enriched = state.risk_manager.validate_and_enrich(raw_sig)
-            if enriched:
-                signal_info = {
-                    "symbol": enriched.symbol,
-                    "timeframe": enriched.timeframe,
-                    "signal_type": enriched.signal_type,
-                    "pattern": enriched.pattern.value if hasattr(enriched.pattern, 'value') else str(enriched.pattern),
-                    "entry_price": enriched.entry_price,
-                    "stop_loss": enriched.stop_loss,
-                    "take_profit": enriched.take_profit,
-                    "tp1": enriched.extra_targets.get("tp1", enriched.take_profit),
-                    "tp2": enriched.extra_targets.get("tp2", enriched.take_profit),
-                    "risk_reward": enriched.risk_reward,
-                    "sl_pct": enriched.sl_pct,
-                    "description": enriched.description,
-                    "timestamp": time.time()
-                }
-                break
-
-    zone_bands = [{"bottom": lo, "top": hi, "kind": "SUPPORT_RESISTANCE"} for lo, hi in sr_zones[:4]]
-    fvg_bands = [dict(fvg) for fvg in (fvgs[-4:] if fvgs else [])]
-    for band in fvg_bands:
-        band["end_index"] = n_bars - 1
     return web.json_response({
         "symbol": symbol,
         "timeframe": timeframe,
         "candles": tv_candles,
         "volumes": tv_volumes,
-        "trendlines": tv_trendlines,
-        "sr_zones": sr_zones[:4],
-        "zone_bands": zone_bands,
-        "fvgs": fvg_bands,
-        "signal": signal_info
+        "trendlines": structure["trendlines"],
+        "sr_zones": structure["sr_zones"],
+        "zone_bands": structure["zone_bands"],
+        "fvgs": structure["fvgs"],
+        "signal": structure["signal"]
     })
 
 async def handle_api_scan(request: web.Request) -> web.Response:
@@ -326,9 +341,19 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
 
     ws = web.WebSocketResponse(heartbeat=20.0)
     await ws.prepare(request)
-    stream_url = f"wss://fstream.binance.com/ws/{symbol.lower()}@bookTicker"
     attempt = 0
     downstream_closed = asyncio.Event()
+
+    async def send(payload: Dict[str, Any]) -> bool:
+        """Send to the browser, swallowing writes on an already-closing socket."""
+        if ws.closed:
+            return False
+        try:
+            await ws.send_json(payload)
+            return True
+        except (ClientConnectionResetError, ConnectionResetError, asyncio.CancelledError):
+            downstream_closed.set()
+            return False
 
     async def watch_downstream():
         try:
@@ -338,65 +363,82 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
             downstream_closed.set()
 
     downstream_task = asyncio.create_task(watch_downstream())
+    history: List[Dict[str, Any]] = []
     try:
         while not ws.closed and not downstream_closed.is_set():
-            await ws.send_json({"type": "status", "state": "connecting" if attempt == 0 else "reconnecting"})
-            session = aiohttp.ClientSession()
-            upstream = None
+            await send({"type": "status", "state": "connecting" if attempt == 0 else "reconnecting"})
+            last_event_at = time.monotonic()
+            stale_sent = False
+            await send({"type": "status", "state": "connected"})
+
+            # Load full history once so structure can be computed server-side.
             try:
-                upstream = await connect_binance_ws(session, stream_url)
-                attempt = 0
-                last_event_at = time.monotonic()
-                stale_sent = False
-                await ws.send_json({"type": "status", "state": "connected"})
-                receive_task = asyncio.create_task(upstream.receive())
-                try:
-                    while not ws.closed and not downstream_closed.is_set():
-                        try:
-                            message = await asyncio.wait_for(asyncio.shield(receive_task), timeout=MARKET_WS_POLL_SECONDS)
-                            receive_task = asyncio.create_task(upstream.receive())
-                        except asyncio.TimeoutError:
-                            if not stale_sent and time.monotonic() - last_event_at >= MARKET_STALE_AFTER_SECONDS:
-                                await ws.send_json({"type": "status", "state": "stale"})
-                                stale_sent = True
-                            continue
-                        if message.type == WSMsgType.TEXT:
-                            try:
-                                payload = json.loads(message.data)
-                            except (json.JSONDecodeError, TypeError):
-                                continue
-                            normalized = normalize_binance_book_ticker_event(payload, timeframe)
-                            if normalized and normalized["symbol"] == symbol:
-                                last_event_at = time.monotonic()
-                                stale_sent = False
-                                await ws.send_json(normalized)
-                        elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR):
-                            break
-                finally:
-                    if not receive_task.done():
-                        receive_task.cancel()
-                    try:
-                        await receive_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-                close_code = getattr(upstream, "close_code", None)
-                if not should_retry_websocket_close(close_code):
-                    await ws.send_json({"type": "status", "state": "error", "reason": "upstream_closed"})
-                    break
+                history = await state.client.get_klines(symbol, interval=timeframe, limit=100)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                print(f"[MarketWS] {symbol} stream disconnected: {exc}")
+                print(f"[MarketWS] {symbol} history fetch failed: {exc}")
+                history = []
+
+            if history:
+                try:
+                    structure = build_structure_payload(state, history, symbol, timeframe)
+                    await send({"type": "structure", **structure})
+                except Exception as exc:
+                    print(f"[MarketWS] {symbol} structure build failed: {exc}")
+
+            polls_since_structure = 0
+            # Binance kline WebSocket streams handshake successfully but deliver no
+            # frames in this network, so we poll the REST klines endpoint for real OHLC.
+            while not ws.closed and not downstream_closed.is_set():
+                try:
+                    klines = await state.client.get_klines(symbol, interval=timeframe, limit=2)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    print(f"[MarketWS] {symbol} kline poll failed: {exc}")
+                    klines = None
+
+                if klines:
+                    last = klines[-1]
+                    payload = normalize_kline_dict(last, symbol, timeframe)
+                    if payload:
+                        last_event_at = time.monotonic()
+                        stale_sent = False
+                        if not await send(payload):
+                            break
+
+                        # merge into history and refresh structure when the candle closes
+                        if history and last["timestamp"] > history[-1]["timestamp"]:
+                            history = (history + [last])[-100:]
+                            polls_since_structure += 1
+                            closed = last["close_time"] <= int(time.time() * 1000)
+                            if closed or polls_since_structure >= 5:
+                                polls_since_structure = 0
+                                try:
+                                    structure = build_structure_payload(state, history, symbol, timeframe)
+                                    if not await send({"type": "structure", **structure}):
+                                        break
+                                except Exception as exc:
+                                    print(f"[MarketWS] {symbol} structure build failed: {exc}")
+                elif not stale_sent and time.monotonic() - last_event_at >= MARKET_STALE_AFTER_SECONDS:
+                    await send({"type": "status", "state": "stale"})
+                    stale_sent = True
+
                 if ws.closed or downstream_closed.is_set():
                     break
-            finally:
-                if upstream is not None and not upstream.closed:
-                    await upstream.close()
-                await session.close()
+                await asyncio.sleep(MARKET_WS_POLL_SECONDS)
+
+                if not stale_sent and time.monotonic() - last_event_at >= MARKET_STALE_AFTER_SECONDS:
+                    if not await send({"type": "status", "state": "stale"}):
+                        break
+                    stale_sent = True
+
             if ws.closed or downstream_closed.is_set():
                 break
             attempt += 1
-            await ws.send_json({"type": "status", "state": "reconnecting"})
+            if not await send({"type": "status", "state": "reconnecting"}):
+                break
             await asyncio.sleep(websocket_backoff_delay(attempt))
     finally:
         downstream_closed.set()
