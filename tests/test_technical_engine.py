@@ -115,3 +115,73 @@ def test_detect_sr_zones_clusters_nearby_swings():
     highs = [max(z) for z in zones]
     assert any(abs(lo - 80.0) < 0.01 for lo in lows)
     assert any(abs(hi - 100.6) < 0.01 for hi in highs)
+
+
+def test_trendline_rejects_body_piercing_and_counts_only_swing_touches():
+    engine = TechnicalEngine()
+    # Verified geometry:
+    # Bar 2: high 100 (swing high: bars 0,1 <= 94; bars 3,4 <= 97.5; bar 2 is higher than 0,1,3,4)
+    # Bar 8: high 94 (swing high: bars 6,7 <= 93.5; bars 9,10 <= 92; bar 8 is higher than 6,7,9,10)
+    # Bar 4 high is 97.5 (not peak because bar 2 is 100 > 97.5)
+    # Bar 5 high is 96.95 (not peak because bar 4 is 97.5 > 96.95)
+    # Line: line = 100 - 1.0 * (idx - 2) = 102 - idx.
+    # At bar 5, line = 97.0. Bar 5 high 96.95 is within 0.001 of line 97.0.
+    prices = [
+        (90, 92, 89, 91),     # 0
+        (91, 94, 90, 93),     # 1
+        (95, 100, 94, 98),    # 2 - SWING HIGH 1 (price 100, line 100)
+        (91, 93, 90, 92),     # 3 (line 99)
+        (93, 97.5, 92, 94),   # 4 - high 97.5 < line 98
+        (93, 96.95, 92, 94),  # 5 - NOT SWING HIGH, but high 96.95 tests line 97.0
+        (91, 93.5, 90, 92),   # 6 (line 96)
+        (90, 92, 89, 91),     # 7 (line 95)
+        (91, 94, 90, 93),     # 8 - SWING HIGH 2 (price 94, line 94)
+        (90, 92, 89, 91),     # 9
+        (89, 91, 88, 90),     # 10
+    ]
+    klines = create_synthetic_klines(prices)
+    swings = engine.find_swing_points(klines, window=2)
+    high_swings = [s for s in swings if s.is_high]
+    assert [s.index for s in high_swings] == [2, 8], f"Expected only swings 2 and 8, got {[s.index for s in high_swings]}"
+
+    lines = engine.detect_trendlines(klines, swings, min_touches=2, tolerance_pct=0.005)
+    res_lines = [l for l in lines if l.is_resistance and l.point1[0] == 2 and l.point2[0] == 8]
+    assert len(res_lines) == 1
+    res_line = res_lines[0]
+    # Under old logic: touches was 3 because bar 5 was falsely counted.
+    # Under new swing-touch logic: touches MUST be 2.
+    assert res_line.touches == 2, f"Expected 2 touches, got {res_line.touches}"
+    assert res_line.touch_indices == [2, 8]
+
+    # Test open-price body piercing:
+    # At bar 4, candle opened at 99.0 (> line 98.0) and closed at 94.0 (< line 98.0).
+    # The candle body pierced through the resistance line from above.
+    pierced_open_prices = list(prices)
+    pierced_open_prices[4] = (99.0, 99.2, 93.0, 94.0)  # Open 99.0 pierces above line 98.0
+    klines_open_pierced = create_synthetic_klines(pierced_open_prices)
+    swings_open_pierced = engine.find_swing_points(klines_open_pierced, window=2)
+    lines_open_pierced = engine.detect_trendlines(klines_open_pierced, swings_open_pierced, min_touches=2)
+    res_open_pierced = [l for l in lines_open_pierced if l.is_resistance and l.point1[0] == 2 and l.point2[0] == 8]
+    assert len(res_open_pierced) == 0, "Line must be rejected when candle open pierces above resistance!"
+
+    klines = create_synthetic_klines(prices)
+    swings = engine.find_swing_points(klines, window=2)
+    # Confirm bar 5 is NOT in swings
+    assert not any(s.index == 5 for s in swings)
+    lines = engine.detect_trendlines(klines, swings, min_touches=2)
+    res_line = [l for l in lines if l.is_resistance and l.point1[0] == 2 and l.point2[0] == 8][0]
+    # Touches must ONLY count actual swing points!
+    assert res_line.touches == 2, f"Expected 2 swing touches (bars 2 and 8), but got {res_line.touches} (falsely counted non-swing bar 5)"
+    assert res_line.touch_indices == [2, 8]
+
+    # Test open-price body piercing:
+    # At bar 5, candle opened at 99.0 (> line 97.0) and closed at 95.0 (< line 97.0).
+    # The candle body pierced through the resistance line from above.
+    # The old code only checked close > line, so it failed to detect this violation!
+    pierced_open_prices = list(prices)
+    pierced_open_prices[5] = (99.0, 99.2, 94.0, 95.0)  # Open 99.0 pierces above line 97.0
+    klines_open_pierced = create_synthetic_klines(pierced_open_prices)
+    swings_open_pierced = engine.find_swing_points(klines_open_pierced, window=2)
+    lines_open_pierced = engine.detect_trendlines(klines_open_pierced, swings_open_pierced, min_touches=2)
+    res_open_pierced = [l for l in lines_open_pierced if l.is_resistance and l.point1[0] == 2 and l.point2[0] == 8]
+    assert len(res_open_pierced) == 0, "Line must be rejected when candle open pierces above resistance!"
