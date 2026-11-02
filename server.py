@@ -194,11 +194,12 @@ def build_structure_payload(
     fvgs = state.technical_engine.detect_fvg(klines)
 
     n_bars = len(klines)
+    selected_trendlines = state.technical_engine.select_strongest_trendlines(trendlines, n_bars=n_bars)
     time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if n_bars > 1 else 0
     next_time = int(klines[-1]["timestamp"] / 1000) + time_step
 
     tv_trendlines = []
-    for tl in trendlines:
+    for tl in selected_trendlines:
         idx1, p1 = tl.point1
         idx2, p2 = tl.point2
         if idx1 < n_bars and idx2 < n_bars:
