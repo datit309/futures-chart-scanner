@@ -7,8 +7,7 @@
 <title>Futures Desk — Market Scanner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
-<script src="https://s3.tradingview.com/tv.js"></script>
+<script src="/static/charting_library/charting_library.standalone.js"></script>
 <script type="module" src="/static/chart_stream.js"></script>
 <style>
 :root{color-scheme:dark;--bg:#090d12;--panel:#0e141b;--panel2:#111a23;--line:#202b36;--muted:#73808e;--text:#e5edf3;--green:#00d69a;--red:#ff5e6e;--amber:#f5b84b;--cyan:#65cfff;--mono:'DM Mono',monospace;--sans:'Manrope',sans-serif}
@@ -22,11 +21,7 @@
 .badge-loss{background:rgba(255,94,110,.15)!important;color:var(--red)!important;border:1px solid rgba(255,94,110,.4)!important}
 .badge-open{background:rgba(101,207,255,.15)!important;color:var(--cyan)!important;border:1px solid rgba(101,207,255,.4)!important}
 .sig-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font:10px var(--mono);color:var(--muted)}
-.chart-modes{display:flex;gap:3px;background:#0c1218;padding:2px;border:1px solid var(--line);border-radius:3px;margin-right:6px}
-.mode-tab{border:0;background:transparent;color:var(--muted);font:10px var(--mono);padding:4px 8px;border-radius:2px;cursor:pointer;transition:.15s}
-.mode-tab:hover{color:#fff}
-.mode-tab.active{background:#182835;color:var(--cyan);font-weight:600}
-#tvChartContainer{width:100%;height:100%;position:absolute;inset:0;z-index:4;background:#0c1218}
+#tvChartContainer{width:100%;height:100%;background:#0c1218}
 </style>
 </head>
 <body>
@@ -34,15 +29,15 @@
 <header class="topbar"><div class="brand"><div class="brand-mark">F</div><div>FUTURES DESK<small>MARKET STRUCTURE SCANNER</small></div></div><div class="top-right"><span class="status"><i class="dot"></i><span id="connection">CONNECTING</span></span><span class="clock" id="clock">--:--:-- ICT</span><div class="top-actions"><button class="btn" id="refreshBtn">↻ REFRESH</button><button class="btn primary" id="scanBtn">⌕ SCAN MARKET</button></div></div></header>
 <section class="hero"><div><div class="eyebrow">BINANCE USDⓈ-M · PUBLIC MARKET DATA</div><h1>Market structure, without the noise.</h1><p>Quét setup Futures, xem cấu trúc giá và mức rủi ro trên một màn hình.</p></div><div class="meta"><span>FRAME <b id="frameLabel">15m</b></span><span>UNIVERSE <b id="universeLabel">30 PAIRS</b></span><span>LAST SCAN <b id="lastScan">--</b></span></div></section>
 <section class="metrics"><div class="metric"><label>BTC / USDT · PERP</label><strong id="btcPrice">—</strong><span class="sub" id="btcChange">—</span><span class="sub" id="btcVol">24H VOL —</span></div><div class="metric"><label>Pairs monitored</label><strong id="pairCount">—</strong><span class="sub">USDT-M contracts</span></div><div class="metric"><label>Signal Win Rate</label><strong id="winRateVal" style="color:var(--green)">--%</strong><span class="sub" id="winRateDetail">0W / 0L · Net 0.0R</span></div><div class="metric"><label>Scanner status</label><strong id="scanStatus" style="font-size:14px;color:var(--green)">READY</strong><span class="sub" id="scanEvery">5m interval</span></div></section>
-<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><div class="chart-modes" id="chartModes"><button class="mode-tab active" data-mode="smc">SMC & DỰ ĐOÁN</button><button class="mode-tab" data-mode="tv">TRADINGVIEW PRO</button></div><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="ob" checked> Order Blocks (OB)</label><label><input type="checkbox" data-overlay="zones" checked> S/R zones</label><label><input type="checkbox" data-overlay="fvgs"> FVG</label><label><input type="checkbox" data-overlay="regression"> LinReg Channel</label><label><input type="checkbox" data-overlay="forecast" checked> Forecast Path</label><label><input type="checkbox" data-overlay="trade" checked> Trade levels</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div id="chart" style="width:100%;height:100%"></div><canvas id="zoneCanvas" aria-hidden="true"></canvas><div class="chart-note">OHLC · VOLUME · SMC & QUANT STRUCTURE</div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#f5b84b"></i> TRENDLINE</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.3);border:1px solid #00d69a"></i> OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.3);border:1px solid #ff5e6e"></i> OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> ENTRY</span><span class="legend-item"><i class="legend-swatch sl"></i> STOP</span><span class="legend-item"><i class="legend-swatch tp"></i> TARGET</span><span class="legend-item"><i class="legend-swatch" style="background:#65cfff"></i> FORECAST PATH</span></div></section>
+<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="ob" checked> Order Blocks (OB)</label><label><input type="checkbox" data-overlay="trade" checked> Trade levels</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#f5b84b"></i> TRENDLINE</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.45);border:1px solid #00d69a"></i> OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.45);border:1px solid #ff5e6e"></i> OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> ENTRY</span><span class="legend-item"><i class="legend-swatch sl"></i> STOP</span><span class="legend-item"><i class="legend-swatch tp"></i> TARGET</span></div></section>
 <aside class="side"><section class="panel"><div class="side-head"><h2>Signal feed</h2><div class="feed-tabs" id="feedTabs"><button class="feed-tab active" data-tab="ALL">ALL</button><button class="feed-tab" data-tab="ACTIVE">OPEN</button><button class="feed-tab" data-tab="HISTORY">HISTORY</button></div></div><div class="signal-list" id="signalList"><div class="signal-empty">Chưa có setup đạt tiêu chí. Chọn <b>SCAN MARKET</b> để quét dữ liệu Futures mới nhất.</div></div><div class="footnote">Tín hiệu được theo dõi tự động theo Take Profit và Stop Loss.</div></section><section class="panel watchlist"><div class="side-head"><h2>High-volume contracts</h2><span class="count">24H QUOTE VOL</span></div><div class="watch-list" id="watchList"><div class="signal-empty">Đang tải danh sách hợp đồng…</div></div><div class="footnote">Binance USDⓈ-M · chỉ gồm hợp đồng USDT perpetual.</div></section></aside></main>
 <div class="disclaimer">RỦI RO CAO · Futures có thể khiến bạn mất toàn bộ vốn. Tín hiệu và mức Entry/SL/TP chỉ mang tính nghiên cứu; không đảm bảo lợi nhuận. Luôn tự xác minh trước khi giao dịch.</div>
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView} from '/static/chart_stream.js';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed} from '/static/chart_stream.js';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',chartMode:'smc',tvWidget:null,chart:null,candles:null,volume:null,series:[],priceLines:[],signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,hasInitialFit:false,visibleRange:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false};
+  const state={symbol:'BTCUSDT',timeframe:'15m',widget:null,chartReady:false,orderLines:[],signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -53,141 +48,212 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZon
     const cd=$('#candleCountdown');
     if(cd)cd.textContent='⏳ '+formatCandleCountdown(Date.now(),state.timeframe);
   },1000);
-  function renderTradingView(symbol, timeframe) {
-    const container = $('#tvChartContainer');
-    if (!container) return;
-    const tvSymbol = symbolToTradingView(symbol);
-    const tvInterval = timeframeToTradingView(timeframe);
-    container.innerHTML = '';
-    if (typeof TradingView !== 'undefined' && TradingView.widget) {
-      state.tvWidget = new TradingView.widget({
-        "autosize": true,
-        "symbol": tvSymbol,
-        "interval": tvInterval,
-        "timezone": "Asia/Ho_Chi_Minh",
-        "theme": "dark",
-        "style": "1",
-        "locale": "vi_VN",
-        "toolbar_bg": "#0e141b",
-        "enable_publishing": false,
-        "allow_symbol_change": true,
-        "container_id": "tvChartContainer",
-        "hide_side_toolbar": false,
-        "withdateranges": true,
-        "save_image": false,
-        "studies": [
-          "STD;EMA",
-          "STD;RSI"
-        ],
-        "overrides": {
-          "paneProperties.background": "#0c1218",
-          "paneProperties.vertGridProperties.color": "#1b2630",
-          "paneProperties.horzGridProperties.color": "#1b2630",
-          "scalesProperties.textColor": "#788795",
-          "mainSeriesProperties.candleStyle.upColor": "#00c990",
-          "mainSeriesProperties.candleStyle.downColor": "#ff5368",
-          "mainSeriesProperties.candleStyle.borderUpColor": "#00c990",
-          "mainSeriesProperties.candleStyle.borderDownColor": "#ff5368",
-          "mainSeriesProperties.candleStyle.wickUpColor": "#00c990",
-          "mainSeriesProperties.candleStyle.wickDownColor": "#ff5368"
-        }
-      });
-    } else {
-      container.innerHTML = '<div class="signal-empty" style="padding-top:60px">Đang tải TradingView Pro...</div>';
-      setTimeout(() => {
-        if (state.chartMode === 'tv' && typeof TradingView !== 'undefined') {
-          renderTradingView(symbol, timeframe);
-        }
-      }, 1200);
-    }
+
+  function overlayState(){
+    return Object.fromEntries($$('.overlay-controls input').map(x=>[x.dataset.overlay,x.checked]));
   }
-  function setChartMode(mode) {
-    state.chartMode = mode;
-    $$('.mode-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-    const tvBox = $('#tvChartContainer');
-    const smcBox = $('#chart');
-    const zoneCanvas = $('#zoneCanvas');
-    const overlayCtrl = $('.overlay-controls');
-    const legend = $('.chart-legend');
-    if (mode === 'tv') {
-      if (tvBox) tvBox.style.display = 'block';
-      if (smcBox) smcBox.style.display = 'none';
-      if (zoneCanvas) zoneCanvas.style.display = 'none';
-      if (overlayCtrl) overlayCtrl.style.display = 'none';
-      if (legend) legend.style.display = 'none';
-      renderTradingView(state.symbol, state.timeframe);
-    } else {
-      if (tvBox) tvBox.style.display = 'none';
-      if (smcBox) smcBox.style.display = 'block';
-      if (zoneCanvas) zoneCanvas.style.display = 'block';
-      if (overlayCtrl) overlayCtrl.style.display = 'flex';
-      if (legend) legend.style.display = 'flex';
-      if (state.chart) {
-        state.chart.applyOptions({ width: $('#chart').clientWidth, height: $('#chart').clientHeight });
-        state.chart.timeScale().fitContent();
-        redrawBands();
+
+  function clearTradingViewDrawings(){
+    if(!state.widget||!state.chartReady)return;
+    try{
+      const c=state.widget.chart();
+      c.removeAllShapes();
+      state.orderLines.forEach(l=>{try{l.remove();}catch(e){}});
+      state.orderLines=[];
+    }catch(e){console.warn('Error clearing shapes:',e);}
+  }
+
+  function renderTradingViewDrawings(structure){
+    if(!state.widget||!state.chartReady||!structure)return;
+    try{
+      const c=state.widget.chart();
+      clearTradingViewDrawings();
+      const o=overlayState();
+
+      if(o.trendlines&&structure.trendlines?.length){
+        structure.trendlines.forEach(tl=>{
+          const s=formatTrendlineShape(tl);
+          c.createMultipointShape(s.points,s.options);
+        });
       }
-    }
+
+      if(o.ob&&structure.order_blocks?.length){
+        const lastTime=structure.candles?.at(-1)?.time||Math.floor(Date.now()/1000);
+        structure.order_blocks.forEach(ob=>{
+          const s=formatOrderBlockShape(ob,lastTime);
+          c.createMultipointShape(s.points,s.options);
+        });
+      }
+
+      const sig=structure.signal;
+      if(o.trade&&sig&&sig.entry_price){
+        const entry=Number(sig.entry_price);
+        const sl=Number(sig.stop_loss);
+        const tp1=Number(sig.tp1||sig.take_profit);
+        const isShort=sig.signal_type==='SHORT';
+
+        if(entry>0){
+          const entryLine=c.createOrderLine()
+            .setText('ENTRY '+fmt(entry))
+            .setPrice(entry)
+            .setLineColor('#65cfff')
+            .setBodyTextColor('#ffffff')
+            .setBodyBackgroundColor('#1e53e5');
+          state.orderLines.push(entryLine);
+        }
+        if(sl>0){
+          const diff=((sl-entry)/entry*100).toFixed(2);
+          const slLine=c.createOrderLine()
+            .setText(`SL ${fmt(sl)} (${diff>0?'+':''}${diff}%)`)
+            .setPrice(sl)
+            .setLineColor('#ff5e6e')
+            .setBodyTextColor('#ffffff')
+            .setBodyBackgroundColor('#ff5e6e');
+          state.orderLines.push(slLine);
+        }
+        if(tp1>0){
+          const diff=((tp1-entry)/entry*100).toFixed(2);
+          const tpLine=c.createOrderLine()
+            .setText(`TP1 ${fmt(tp1)} (${diff>0?'+':''}${diff}%)`)
+            .setPrice(tp1)
+            .setLineColor('#00d69a')
+            .setBodyTextColor('#ffffff')
+            .setBodyBackgroundColor('#00d69a');
+          state.orderLines.push(tpLine);
+        }
+
+        const lastCandle=structure.candles?.at(-1);
+        if(lastCandle){
+          c.createShape({time:lastCandle.time,price:entry},{
+            shape:isShort?'arrow_down':'arrow_up',
+            text:`${sig.signal_type} · ${sig.description||''}`,
+            overrides:{color:isShort?'#ff5e6e':'#00d69a'}
+          });
+        }
+      }
+    }catch(err){console.warn('renderTradingViewDrawings error:',err);}
   }
-  function initChart(){const el=$('#chart');if(!window.LightweightCharts){el.innerHTML='<div class="signal-empty">Không tải được thư viện biểu đồ. Kiểm tra kết nối mạng rồi tải lại trang.</div>';return}state.chart=LightweightCharts.createChart(el,{width:el.clientWidth,height:el.clientHeight,layout:{background:{type:'solid',color:'#0c1218'},textColor:'#788795',fontFamily:'DM Mono, monospace',fontSize:10},grid:{vertLines:{color:'#1b2630'},horzLines:{color:'#1b2630'}},rightPriceScale:{borderColor:'#25313b',autoScale:true},timeScale:{borderColor:'#25313b',timeVisible:true,secondsVisible:false,rightOffset:6,tickMarkFormatter:(time)=>{const d=new Date(time*1000);return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',hour12:false}).format(d);}},localization:{locale:'vi-VN',dateFormat:'dd/MM/yyyy',timeFormatter:(time)=>{const d=new Date(time*1000);return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(d)+' ICT';}},crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#657481',width:1,style:2},horzLine:{color:'#657481',width:1,style:2}},handleScroll:true,handleScale:true});state.candles=state.chart.addCandlestickSeries({upColor:'#00c990',downColor:'#ff5368',borderUpColor:'#00c990',borderDownColor:'#ff5368',wickUpColor:'#00c990',wickDownColor:'#ff5368'});state.volume=state.chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume',scaleMargins:{top:.82,bottom:0},lastValueVisible:false,priceLineVisible:false});state.chart.priceScale('volume').applyOptions({scaleMargins:{top:.82,bottom:0}});new ResizeObserver(()=>state.chart.applyOptions({width:el.clientWidth,height:el.clientHeight})).observe(el)}
-  function clearPriceLines(){if(state.priceLines&&state.candles){state.priceLines.forEach(pl=>{try{state.candles.removePriceLine(pl)}catch{}})}state.priceLines=[]}
-  function clearOverlays(){state.series.forEach(s=>{try{if(s.remove)s.remove();else state.chart.removeSeries(s)}catch{}});state.series=[];clearPriceLines();if(state.candles)state.candles.setMarkers([])}
-  function overlayState(){return Object.fromEntries($$('.overlay-controls input').map(x=>[x.dataset.overlay,x.checked]))}
-  const redrawBands=createThrottle(()=>{if(!state.chartPayload)return;const canvas=$('#zoneCanvas'),rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);const o=overlayState();drawZoneBands(ctx,state.chart,state.candles,state.chartPayload.zone_bands||[],state.chartPayload.fvgs||[],state.chartPayload.candles||[],rect.width,rect.height,o.zones,o.fvgs,state.chartPayload.order_blocks||[],o.ob)},250);
-  function renderTradeLevels(sig){clearPriceLines();if(!sig||!overlayState().trade||!state.candles)return;const entry=Number(sig.entry_price);const sl=Number(sig.stop_loss);const tp1=Number(sig.tp1||sig.take_profit);const tp2=Number(sig.tp2);if(entry>0){state.priceLines.push(state.candles.createPriceLine({price:entry,color:'#65cfff',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:'ENTRY '+fmt(entry)}))}if(sl>0){const diff=((sl-entry)/entry*100).toFixed(2);state.priceLines.push(state.candles.createPriceLine({price:sl,color:'#ff5e6e',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Solid,axisLabelVisible:true,title:`SL ${fmt(sl)} (${diff>0?'+':''}${diff}%)`}))}if(tp1>0){const diff=((tp1-entry)/entry*100).toFixed(2);state.priceLines.push(state.candles.createPriceLine({price:tp1,color:'#00d69a',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Solid,axisLabelVisible:true,title:`TP1 ${fmt(tp1)} (${diff>0?'+':''}${diff}%)`}))}if(tp2>0&&tp2!==tp1){const diff=((tp2-entry)/entry*100).toFixed(2);state.priceLines.push(state.candles.createPriceLine({price:tp2,color:'#00d69a',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,axisLabelVisible:true,title:`TP2 ${fmt(tp2)} (${diff>0?'+':''}${diff}%)`}))}}
-  function attachOverlayEvents(){if(state.overlayEventsAttached)return;state.overlayEventsAttached=true;state.chart.timeScale().subscribeVisibleTimeRangeChange(redrawBands);state.chart.timeScale().subscribeVisibleLogicalRangeChange(redrawBands);new ResizeObserver(redrawBands).observe($('#chart'));$$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{if(state.chartPayload)renderStructure(state.chartPayload)}))}
-  function addLine(points,color,width=1,style=LightweightCharts.LineStyle.Dashed){if(!points||points.length<2)return;const s=state.chart.addLineSeries({color,lineWidth:width,lineStyle:style,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});s.setData(points);state.series.push(s)}
-  function renderSignalList(){const box=$('#signalList');const filtered=filterSignals(state.signals,state.feedTab);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div><div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
-  async function loadHistoricalSignalChart(id,symbol){setChartMode('smc');if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.candles.setData(d.candles);state.volume.setData(d.volumes);clearOverlays();state.chartPayload=d;renderTradeLevels(d.signal);state.chart.timeScale().fitContent();const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
-  async function loadSignals(){try{const r=await fetch('/api/signals?limit=60');if(!r.ok)return;const d=await r.json();state.signals=d.signals||[];state.stats=d.stats||{};const s=state.stats;if(s){const wr=s.win_rate!=null?s.win_rate+'%':'--%';$('#winRateVal').textContent=wr;$('#winRateVal').style.color=s.win_rate>=50?'var(--green)':(s.win_rate>0?'var(--red)':'var(--muted)');const pnl=s.net_pnl_r||0;$('#winRateDetail').textContent=`${s.wins||0}W / ${s.losses||0}L · Net ${pnl>=0?'+':''}${Number(pnl).toFixed(1)}R`}renderSignalList()}catch(e){console.warn('loadSignals error',e)}}
-  function renderWatchlist(){const box=$('#watchList');if(!state.symbols.length){box.innerHTML='<div class="signal-empty">Không lấy được danh sách. Thử refresh.</div>';return}box.innerHTML=state.symbols.slice(0,15).map((s,i)=>{const t=state.tickers[s]||{};const change=Number(t.priceChangePercent||0);return `<div class="watch-row" data-symbol="${s}"><span class="watch-symbol">${s.replace('USDT','')}<span style="color:var(--muted)"> / USDT</span></span><span class="watch-price">${fmt(t.lastPrice||0)}</span><span class="watch-change ${change>=0?'up':'down'}">${change>=0?'+':''}${change.toFixed(2)}% · V ${fmt(t.quoteVolume||0)}</span></div>`}).join('');$$('.watch-row').forEach(e=>e.onclick=()=>selectSymbol(e.dataset.symbol))}
-  async function loadSymbols(){try{const r=await fetch('/api/symbols');if(!r.ok)throw Error('symbols '+r.status);const d=await r.json();state.symbols=d.symbols||[];state.tickers=d.tickers||{};if(state.tickers.BTCUSDT){$('#btcPrice').textContent=fmt(state.tickers.BTCUSDT.lastPrice);$('#btcChange').textContent=`${Number(state.tickers.BTCUSDT.priceChangePercent).toFixed(2)}%`;$('#btcVol').textContent=`24H VOL ${fmt(state.tickers.BTCUSDT.quoteVolume)}`}$('#pairCount').textContent=state.symbols.length;$('#universeLabel').textContent=(state.symbols.length||30)+' PAIRS';renderWatchlist();const sel=$('#symbolSelect');sel.innerHTML=state.symbols.map(s=>`<option value="${s}">${s}</option>`).join('');if(!state.symbols.includes(state.symbol))sel.insertAdjacentHTML('afterbegin',`<option value="${state.symbol}">${state.symbol}</option>`);sel.value=state.symbol}catch(e){console.warn(e);$('#connection').textContent='API OFFLINE'}}
-  async function loadChart({preserve=true,force=false}={}){if(!state.chart)return;state.viewingHistorical=false;if(!force&&state.marketWs&&state.marketWs.readyState===WebSocket.OPEN&&state.lastTick&&Date.now()-state.lastTick<15000){if(preserve){return}state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null;state.marketGeneration=(state.marketGeneration||0)+1}const priorRange=preserve?state.chart.timeScale().getVisibleLogicalRange():null;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'100'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();if(!d.candles?.length)throw Error(d.error||'empty chart');state.candles.setData(d.candles);state.volume.setData(d.volumes);clearOverlays();state.chartPayload=d;const last=d.candles[d.candles.length-1],prev=d.candles[d.candles.length-2]||last,pct=prev.close?((last.close-prev.close)/prev.close*100):0;$('#chartPrice').textContent=fmt(last.close);$('#chartChange').textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%';$('#chartChange').style.color=pct>=0?'var(--green)':'var(--red)';if(state.symbol==='BTCUSDT'){$('#btcPrice').textContent=fmt(last.close);$('#btcChange').textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%';$('#btcChange').style.color=pct>=0?'var(--green)':'var(--red)'}
-    renderStructure(d);
-    if(!preserve||!state.hasInitialFit){state.chart.timeScale().fitContent();state.hasInitialFit=true}else if(priorRange){state.chart.timeScale().setVisibleLogicalRange(priorRange)}if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}attachOverlayEvents();}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
-  async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;state.hasInitialFit=false;$('#symbolSelect').value=symbol;if(state.chartMode==='tv'){renderTradingView(symbol,state.timeframe)}await loadChart({preserve:false});connectMarketWs()}
-  async function loadStatus(){try{const r=await fetch('/api/status');if(!r.ok)throw Error();const d=await r.json();if(d.last_scan_time){$('#lastScan').textContent=new Date(d.last_scan_time*1000).toLocaleTimeString('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit'})+' ICT'}$('#scanStatus').textContent=d.is_scanning?'SCANNING':'READY';$('#scanStatus').style.color=d.is_scanning?'var(--amber)':'var(--green)';$('#scanEvery').textContent=Math.round((d.scan_interval_seconds||300)/60)+'m interval';await loadSignals()}catch{}}
-  async function scan(){const b=$('#scanBtn');b.disabled=true;$('#scanStatus').textContent='SCANNING';$('#scanStatus').style.color='var(--amber)';try{const r=await fetch('/api/scan',{method:'POST'});if(!r.ok)throw Error('scan '+r.status);const d=await r.json();$('#lastScan').textContent=timeNow().replace(' ICT',' ICT');toast(`Scan hoàn tất · ${d.signals_count||0} setups`);await loadStatus()}catch(e){toast('Scan error: '+e.message)}finally{b.disabled=false;$('#scanStatus').textContent='READY';$('#scanStatus').style.color='var(--green)'}}
-  function setStreamStatus(status){const connectedLabel=state.lastTick?'LIVE':'CONNECTED';const label={connecting:'CONNECTING',connected:connectedLabel,reconnecting:'RECONNECTING',stale:'STALE',error:'STREAM ERROR'}[status]||'OFFLINE';$('#connection').textContent=label;$('#connection').style.color=status==='connected'?(state.lastTick?'var(--green)':'var(--amber)'):status==='error'?'var(--red)':'var(--amber)';if(status==='connected'&&!state.lastTick){state.connectedAt=Date.now();$('#lastUpdateAge').textContent='CONNECTED · WAITING FOR TICK'}}
-  function renderStructure(structure){
-    if(!structure)return;
-    const d=structureToOverlays(structure);
-    state.chartPayload={...state.chartPayload,...d};
-    clearOverlays();
-    const o=overlayState();
-    if(o.trendlines&&d.trendlines?.length){
-      chooseMarketStructure(d.trendlines).forEach(t=>addLine(trendlinePoints(t),t.is_resistance?'#f5b84b':'#65cfff',2,LightweightCharts.LineStyle.Solid));
-    }
-    if(o.regression&&d.regression_channel?.upper_series?.length){
-      addLine(d.regression_channel.upper_series,'#ff5e6e',1,LightweightCharts.LineStyle.Dashed);
-      addLine(d.regression_channel.middle_series,'#788795',1,LightweightCharts.LineStyle.Dotted);
-      addLine(d.regression_channel.lower_series,'#00d69a',1,LightweightCharts.LineStyle.Dashed);
-    }
-    if(o.forecast&&d.forecast_path?.length>=2){
-      const pts=d.forecast_path.map(p=>({time:p.time,value:p.value}));
-      addLine(pts,'#65cfff',2,LightweightCharts.LineStyle.Dashed);
-    }
-    redrawBands();
-    if(d.signal){
-      const last=state.chartPayload?.candles?.at(-1);
+
+  const datafeed=createTradingViewDatafeed(
+    async (symbol,tf)=>{
+      const q=new URLSearchParams({symbol,timeframe:tf,limit:'100'});
+      const r=await fetch('/api/chart?'+q);
+      const d=await r.json();
+      state.chartPayload=d;
+      const last=d.candles?.at(-1);
       if(last){
-        const markers=[{time:last.time,position:d.signal.signal_type==='LONG'?'belowBar':'aboveBar',color:d.signal.signal_type==='LONG'?'#00d69a':'#ff5e6e',shape:d.signal.signal_type==='LONG'?'arrowUp':'arrowDown',text:d.signal.signal_type+' · '+d.signal.description}];
-        state.candles.setMarkers(markers);
+        const prev=d.candles?.at(-2)||last;
+        const pct=prev.close?((last.close-prev.close)/prev.close*100):0;
+        $('#chartPrice').textContent=fmt(last.close);
+        $('#chartChange').textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%';
+        $('#chartChange').style.color=pct>=0?'var(--green)':'var(--red)';
+        if(state.symbol==='BTCUSDT'){
+          $('#btcPrice').textContent=fmt(last.close);
+          $('#btcChange').textContent=(pct>=0?'+':'')+pct.toFixed(2)+'%';
+          $('#btcChange').style.color=pct>=0?'var(--green)':'var(--red)';
+        }
       }
-      renderTradeLevels(d.signal);
-    }else{
-      clearPriceLines();
+      return d;
+    },
+    (symbol,resolution,onTick)=>{
+      state.realtimeCallback=onTick;
     }
+  );
+
+  function initTradingView(){
+    const container=$('#tvChartContainer');
+    if(!container||!window.TradingView)return;
+    container.innerHTML='';
+    state.chartReady=false;
+    state.widget=new TradingView.widget({
+      container:'tvChartContainer',
+      library_path:'/static/charting_library/',
+      datafeed:datafeed,
+      symbol:state.symbol,
+      interval:timeframeToTradingView(state.timeframe),
+      autosize:true,
+      theme:'dark',
+      locale:'vi',
+      timezone:'Asia/Ho_Chi_Minh',
+      toolbar_bg:'#0e141b',
+      loading_screen:{backgroundColor:'#0c1218',foregroundColor:'#00d69a'},
+      enabled_features:['study_templates','side_toolbar_in_fullscreen_mode'],
+      disabled_features:['use_localstorage_for_settings'],
+      overrides:{
+        'paneProperties.background':'#0c1218',
+        'paneProperties.vertGridProperties.color':'#1b2630',
+        'paneProperties.horzGridProperties.color':'#1b2630',
+        'scalesProperties.textColor':'#788795',
+        'mainSeriesProperties.candleStyle.upColor':'#00c990',
+        'mainSeriesProperties.candleStyle.downColor':'#ff5368',
+        'mainSeriesProperties.candleStyle.borderUpColor':'#00c990',
+        'mainSeriesProperties.candleStyle.borderDownColor':'#ff5368',
+        'mainSeriesProperties.candleStyle.wickUpColor':'#00c990',
+        'mainSeriesProperties.candleStyle.wickDownColor':'#ff5368'
+      }
+    });
+
+    state.widget.onChartReady(()=>{
+      state.chartReady=true;
+      if(state.chartPayload){
+        renderTradingViewDrawings(state.chartPayload);
+      }
+    });
   }
-  function applyTick(msg){if(msg.symbol!==state.symbol)return;const price=Number(msg.price);if(!Number.isFinite(price)||price<=0)return;const prev=state.chartPrice||price;state.chartPrice=price;const el=$('#chartPrice');el.textContent=fmt(price);el.style.color=price>prev?'#00c990':(price<prev?'#ff5368':'var(--green)');if(state.symbol==='BTCUSDT'){$('#btcPrice').textContent=fmt(price)}const candle=state.chartPayload?.candles?.at(-1);if(candle&&state.candles){const secMap={'15m':900,'1h':3600,'4h':14400};const intervalSec=secMap[state.timeframe]||900;const eventSec=msg.time?Math.floor(msg.time/1000):Math.floor(Date.now()/1000);const currentStart=Math.floor(eventSec/intervalSec)*intervalSec;if(currentStart>candle.time){const newC={time:currentStart,open:price,high:price,low:price,close:price,volume:0};state.chartPayload.candles=upsertKline(state.chartPayload.candles,newC);state.candles.update(newC);}else{const updated={...candle,close:price,high:Math.max(candle.high,price),low:Math.min(candle.low,price)};state.candles.update(updated);state.chartPayload.candles[state.chartPayload.candles.length-1]=updated}}state.lastTick=Date.now();state.connectedAt=0;$('#lastUpdateAge').textContent='UPDATED JUST NOW';setStreamStatus('connected')}
-  function applyKline(msg){const c=msg.candle;if(!c)return;const candle={time:c.time,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume};const merged=upsertKline(state.chartPayload?.candles||[],candle);if(merged===state.chartPayload?.candles)return;state.chartPayload.candles=merged;state.candles.update(candle);state.volume.update({time:candle.time,value:candle.volume,color:candle.close>=candle.open?'rgba(14,203,129,.45)':'rgba(246,70,93,.45)'});$('#liveCandle').classList.toggle('hidden',c.closed);state.lastTick=Date.now();state.connectedAt=0;$('#lastUpdateAge').textContent='UPDATED JUST NOW';setStreamStatus('connected');$('#chartPrice').textContent=fmt(candle.close);if(state.symbol==='BTCUSDT'){$('#btcPrice').textContent=fmt(candle.close)}}
-  function connectMarketWs(){if(state.marketReconnectTimer){clearTimeout(state.marketReconnectTimer);state.marketReconnectTimer=null}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close()}const generation=(state.marketGeneration||0)+1;state.marketGeneration=generation;state.marketReconnectAttempt=0;const url=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/market?symbol=${encodeURIComponent(state.symbol)}&timeframe=${encodeURIComponent(state.timeframe)}`;state.lastTick=0;state.connectedAt=Date.now();state.marketWs=new WebSocket(url);setStreamStatus('connecting');state.marketWs.onopen=()=>{if(generation===state.marketGeneration){state.connectedAt=Date.now();setStreamStatus('connected')}};state.marketWs.onmessage=async e=>{if(generation!==state.marketGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='status'){setStreamStatus(msg.state);if(msg.state==='reconnecting'&&!state.recovering){state.recovering=true;await loadChart({preserve:true});state.recovering=false}}else if(msg.type==='tick'&&msg.symbol===state.symbol){applyTick(msg)}else if(msg.type==='kline'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){applyKline(msg)}else if(msg.type==='structure'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){renderStructure(msg)}}catch(err){console.error('Market stream message error',err)}};state.marketWs.onclose=()=>{if(generation!==state.marketGeneration)return;setStreamStatus('reconnecting');if(!state.marketReconnectTimer){const attempt=++state.marketReconnectAttempt;const delay=clientReconnectDelay(attempt);state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;await loadChart({preserve:true,force:true});connectMarketWs()},delay)}};state.marketWs.onerror=()=>{if(generation===state.marketGeneration)setStreamStatus('error')}}
+
+  function renderSignalList(){const box=$('#signalList');const filtered=filterSignals(state.signals,state.feedTab);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div><div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
+
+  async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
+
+  async function loadSignals(){try{const r=await fetch('/api/signals?limit=60');if(!r.ok)return;const d=await r.json();state.signals=d.signals||[];state.stats=d.stats||{};const s=state.stats;if(s){const wr=s.win_rate!=null?s.win_rate+'%':'--%';$('#winRateVal').textContent=wr;$('#winRateVal').style.color=s.win_rate>=50?'var(--green)':(s.win_rate>0?'var(--red)':'var(--muted)');const pnl=s.net_pnl_r||0;$('#winRateDetail').textContent=`${s.wins||0}W / ${s.losses||0}L · Net ${pnl>=0?'+':''}${Number(pnl).toFixed(1)}R`}renderSignalList()}catch(e){console.warn('loadSignals error',e)}}
+
+  function renderWatchlist(){const box=$('#watchList');if(!state.symbols.length){box.innerHTML='<div class="signal-empty">Không lấy được danh sách. Thử refresh.</div>';return}box.innerHTML=state.symbols.slice(0,15).map((s,i)=>{const t=state.tickers[s]||{};const change=Number(t.priceChangePercent||0);return `<div class="watch-row" data-symbol="${s}"><span class="watch-symbol">${s.replace('USDT','')}<span style="color:var(--muted)"> / USDT</span></span><span class="watch-price">${fmt(t.lastPrice||0)}</span><span class="watch-change ${change>=0?'up':'down'}">${change>=0?'+':''}${change.toFixed(2)}% · V ${fmt(t.quoteVolume||0)}</span></div>`}).join('');$$('.watch-row').forEach(e=>e.onclick=()=>selectSymbol(e.dataset.symbol))}
+
+  async function loadSymbols(){try{const r=await fetch('/api/symbols');if(!r.ok)throw Error('symbols '+r.status);const d=await r.json();state.symbols=d.symbols||[];state.tickers=d.tickers||{};if(state.tickers.BTCUSDT){$('#btcPrice').textContent=fmt(state.tickers.BTCUSDT.lastPrice);$('#btcChange').textContent=`${Number(state.tickers.BTCUSDT.priceChangePercent).toFixed(2)}%`;$('#btcVol').textContent=`24H VOL ${fmt(state.tickers.BTCUSDT.quoteVolume)}`}$('#pairCount').textContent=state.symbols.length;$('#universeLabel').textContent=(state.symbols.length||30)+' PAIRS';renderWatchlist();const sel=$('#symbolSelect');sel.innerHTML=state.symbols.map(s=>`<option value="${s}">${s}</option>`).join('');if(!state.symbols.includes(state.symbol))sel.insertAdjacentHTML('afterbegin',`<option value="${state.symbol}">${state.symbol}</option>`);sel.value=state.symbol}catch(e){console.warn(e);$('#connection').textContent='API OFFLINE'}}
+
+  async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'100'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;renderTradingViewDrawings(d);if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
+
+  async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;$('#symbolSelect').value=symbol;$('#chartSymbol').textContent=symbol;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();}
+
+  async function loadStatus(){try{const r=await fetch('/api/status');if(!r.ok)throw Error();const d=await r.json();if(d.last_scan_time){$('#lastScan').textContent=new Date(d.last_scan_time*1000).toLocaleTimeString('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit'})+' ICT'}$('#scanStatus').textContent=d.is_scanning?'SCANNING':'READY';$('#scanStatus').style.color=d.is_scanning?'var(--amber)':'var(--green)';$('#scanEvery').textContent=Math.round((d.scan_interval_seconds||300)/60)+'m interval';await loadSignals()}catch{}}
+
+  async function scan(){const b=$('#scanBtn');b.disabled=true;$('#scanStatus').textContent='SCANNING';$('#scanStatus').style.color='var(--amber)';try{const r=await fetch('/api/scan',{method:'POST'});if(!r.ok)throw Error('scan '+r.status);const d=await r.json();$('#lastScan').textContent=timeNow().replace(' ICT',' ICT');toast(`Scan hoàn tất · ${d.signals_count||0} setups`);await loadStatus()}catch(e){toast('Scan error: '+e.message)}finally{b.disabled=false;$('#scanStatus').textContent='READY';$('#scanStatus').style.color='var(--green)'}}
+
+  function setStreamStatus(status){const connectedLabel=state.lastTick?'LIVE':'CONNECTED';const label={connecting:'CONNECTING',connected:connectedLabel,reconnecting:'RECONNECTING',stale:'STALE',error:'STREAM ERROR'}[status]||'OFFLINE';$('#connection').textContent=label;$('#connection').style.color=status==='connected'?(state.lastTick?'var(--green)':'var(--amber)'):status==='error'?'var(--red)':'var(--amber)';if(status==='connected'&&!state.lastTick){state.connectedAt=Date.now();$('#lastUpdateAge').textContent='CONNECTED · WAITING FOR TICK'}}
+
+  function applyTick(msg){if(msg.symbol!==state.symbol)return;const price=Number(msg.price);if(!Number.isFinite(price)||price<=0)return;const prev=state.chartPrice||price;state.chartPrice=price;const el=$('#chartPrice');if(el){el.textContent=fmt(price);el.style.color=price>prev?'#00c990':(price<prev?'#ff5368':'var(--green)');}if(state.symbol==='BTCUSDT'&&$('#btcPrice')){$('#btcPrice').textContent=fmt(price)}if(state.realtimeCallback&&state.chartPayload?.candles?.length){const last=state.chartPayload.candles.at(-1);const secMap={'15m':900,'1h':3600,'4h':14400};const intervalSec=secMap[state.timeframe]||900;const eventSec=msg.time?Math.floor(msg.time/1000):Math.floor(Date.now()/1000);const currentStart=Math.floor(eventSec/intervalSec)*intervalSec;if(currentStart>last.time){const newBar={time:currentStart*1000,open:price,high:price,low:price,close:price,volume:0};state.chartPayload.candles.push({time:currentStart,open:price,high:price,low:price,close:price,volume:0});state.realtimeCallback(newBar);}else{const updated={time:last.time*1000,open:last.open,high:Math.max(last.high,price),low:Math.min(last.low,price),close:price,volume:last.volume||100};state.chartPayload.candles[state.chartPayload.candles.length-1]={...last,high:Math.max(last.high,price),low:Math.min(last.low,price),close:price};state.realtimeCallback(updated);}}state.lastTick=Date.now();state.connectedAt=0;$('#lastUpdateAge').textContent='UPDATED JUST NOW';setStreamStatus('connected')}
+
+  function applyKline(msg){const c=msg.candle;if(!c)return;if(state.realtimeCallback){state.realtimeCallback({time:c.time*1000,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume});}state.lastTick=Date.now();state.connectedAt=0;$('#lastUpdateAge').textContent='UPDATED JUST NOW';setStreamStatus('connected');$('#chartPrice').textContent=fmt(c.close);if(state.symbol==='BTCUSDT'){$('#btcPrice').textContent=fmt(c.close);}}
+
+  function connectMarketWs(){if(state.marketReconnectTimer){clearTimeout(state.marketReconnectTimer);state.marketReconnectTimer=null}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close()}const generation=(state.marketGeneration||0)+1;state.marketGeneration=generation;state.marketReconnectAttempt=0;const url=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/market?symbol=${encodeURIComponent(state.symbol)}&timeframe=${encodeURIComponent(state.timeframe)}`;state.lastTick=0;state.connectedAt=Date.now();state.marketWs=new WebSocket(url);setStreamStatus('connecting');state.marketWs.onopen=()=>{if(generation===state.marketGeneration){state.connectedAt=Date.now();setStreamStatus('connected')}};state.marketWs.onmessage=async e=>{if(generation!==state.marketGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='status'){setStreamStatus(msg.state);if(msg.state==='reconnecting'&&!state.recovering){state.recovering=true;await loadChart();state.recovering=false}}else if(msg.type==='tick'&&msg.symbol===state.symbol){applyTick(msg)}else if(msg.type==='kline'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){applyKline(msg)}else if(msg.type==='structure'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){state.chartPayload={...state.chartPayload,...msg};renderTradingViewDrawings(msg);}}catch(err){console.error('Market stream message error',err)}};state.marketWs.onclose=()=>{if(generation!==state.marketGeneration)return;setStreamStatus('reconnecting');if(!state.marketReconnectTimer){const attempt=++state.marketReconnectAttempt;const delay=clientReconnectDelay(attempt);state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;await loadChart();connectMarketWs()},delay)}};state.marketWs.onerror=()=>{if(generation===state.marketGeneration)setStreamStatus('error')}}
+
   function connectWs(){try{state.ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/stream`);state.ws.onopen=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('connecting')};state.ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='INIT_STATE'||m.type==='SCAN_COMPLETE'||m.type==='SIGNAL_OUTCOME'){loadSignals();loadStatus()}if(m.type==='NEW_SIGNAL'){const s=m.data;toast(`Kèo mới · ${s.symbol} ${s.signal_type}`);loadSignals()}};state.ws.onclose=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('reconnecting');setTimeout(connectWs,3000)};state.ws.onerror=()=>state.ws.close()}catch{}}
-  $('#symbolSelect').onchange=e=>selectSymbol(e.target.value);$$('.tf').forEach(b=>b.onclick=()=>{$$('.tf').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.timeframe=b.dataset.tf;if(state.chartMode==='tv'){renderTradingView(state.symbol,state.timeframe)}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.hasInitialFit=false;loadChart({preserve:false}).then(connectMarketWs)});
+
+  $('#symbolSelect').onchange=e=>selectSymbol(e.target.value);
+  $$('.tf').forEach(b=>b.onclick=()=>{
+    $$('.tf').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    state.timeframe=b.dataset.tf;
+    $('#frameLabel').textContent=state.timeframe;
+    if(state.widget&&state.chartReady){
+      state.widget.chart().setResolution(timeframeToTradingView(state.timeframe),async()=>{
+        await loadChart();
+      });
+    }else{
+      loadChart();
+    }
+    if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}
+    connectMarketWs();
+  });
   $$('.feed-tab').forEach(b=>b.onclick=()=>{$$('.feed-tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.feedTab=b.dataset.tab;renderSignalList()});
-  $$('.mode-tab').forEach(b=>b.onclick=()=>setChartMode(b.dataset.mode));
-  $('#scanBtn').onclick=scan;$('#refreshBtn').onclick=async()=>{await loadSymbols();await loadStatus();await loadSignals();await loadChart({preserve:true,force:true});toast('Market data refreshed')};
-  initChart();attachOverlayEvents();setChartMode('smc');loadSymbols().then(()=>loadChart({preserve:false})).then(connectMarketWs);loadStatus();loadSignals();connectWs();setInterval(loadStatus,15000);setInterval(loadSignals,20000);setInterval(()=>{if(state.viewingHistorical)return;const basis=state.lastTick||state.connectedAt;if(basis&&Date.now()-basis>15000){$('#lastUpdateAge').textContent=`STALE ${Math.floor((Date.now()-basis)/1000)}s`;setStreamStatus('stale')}else if(basis&&state.connectedAt&&!state.lastTick){$('#lastUpdateAge').textContent=`CONNECTED ${Math.floor((Date.now()-basis)/1000)}s · WAITING FOR TICK`}},3000);
+  $$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{if(state.chartPayload)renderTradingViewDrawings(state.chartPayload);}));
+  $('#scanBtn').onclick=scan;$('#refreshBtn').onclick=async()=>{await loadSymbols();await loadStatus();await loadSignals();await loadChart();toast('Market data refreshed')};
+
+  initTradingView();
+  loadSymbols().then(()=>loadChart()).then(connectMarketWs);
+  loadStatus();loadSignals();connectWs();
+  setInterval(loadStatus,15000);setInterval(loadSignals,20000);
+  setInterval(()=>{if(state.viewingHistorical)return;const basis=state.lastTick||state.connectedAt;if(basis&&Date.now()-basis>15000){$('#lastUpdateAge').textContent=`STALE ${Math.floor((Date.now()-basis)/1000)}s`;setStreamStatus('stale')}else if(basis&&state.connectedAt&&!state.lastTick){$('#lastUpdateAge').textContent=`CONNECTED ${Math.floor((Date.now()-basis)/1000)}s · WAITING FOR TICK`}},3000);
 })();
 </script>
 </body></html>

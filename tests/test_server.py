@@ -26,7 +26,7 @@ async def test_root_serves_dashboard_ui(aiohttp_client):
     body = await response.text()
     assert "FUTURES DESK" in body
     assert "SCAN MARKET" in body
-    assert "lightweight-charts" in body
+    assert "charting_library" in body
     assert "chart_stream.js" in body
     assert "ws/market" in body
     assert 'aria-label="Overlay controls"' in body

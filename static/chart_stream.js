@@ -121,4 +121,121 @@ export function timeframeToTradingView(timeframe) {
   return map[tf] || '15';
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView};
+export function formatTrendlineShape(line) {
+  return {
+    points: [
+      { time: line.time1, price: line.price1 },
+      { time: line.next_time || line.time2, price: line.next_price || line.price2 }
+    ],
+    options: {
+      shape: 'trend_line',
+      lock: true,
+      disableSelection: false,
+      overrides: {
+        linecolor: line.is_resistance ? '#f5b84b' : '#65cfff',
+        linewidth: 2,
+      }
+    }
+  };
+}
+
+export function formatOrderBlockShape(ob, lastTime) {
+  const t1 = Math.floor((ob.timestamp || Date.now()) / 1000);
+  const t2 = lastTime || t1 + 3600 * 4;
+  const isBull = ob.type === 'BULLISH_OB';
+  return {
+    points: [
+      { time: t1, price: ob.top },
+      { time: t2, price: ob.bottom }
+    ],
+    options: {
+      shape: 'rectangle',
+      lock: true,
+      disableSelection: false,
+      overrides: {
+        color: isBull ? 'rgba(0, 214, 154, 0.45)' : 'rgba(255, 94, 110, 0.45)',
+        backgroundColor: isBull ? 'rgba(0, 214, 154, 0.20)' : 'rgba(255, 94, 110, 0.20)',
+        fillBackground: true,
+        linewidth: 1,
+      }
+    }
+  };
+}
+
+export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription = null) {
+  const subscribers = new Map();
+  return {
+    onReady: (cb) => {
+      setTimeout(() => cb({
+        supported_resolutions: ['1', '5', '15', '60', '240', 'D'],
+        supports_marks: false,
+        supports_timescale_marks: false,
+        supports_time: true,
+      }), 0);
+    },
+    searchSymbols: (userInput, exchange, symbolType, onResult) => {
+      onResult([]);
+    },
+    resolveSymbol: (symbolName, onResolve, onError) => {
+      const s = (symbolName || 'BTCUSDT').toUpperCase().replace('BINANCE:', '').replace('.P', '').trim();
+      let scale = 100;
+      if (s.includes('PEPE') || s.includes('SHIB') || s.includes('BONK') || s.includes('FLOKI')) {
+        scale = 100000;
+      } else if (s.includes('DOGE') || s.includes('ADA') || s.includes('XRP') || s.includes('TRX')) {
+        scale = 10000;
+      }
+      setTimeout(() => onResolve({
+        name: s,
+        ticker: s,
+        description: `${s} Perpetual`,
+        type: 'crypto',
+        session: '24x7',
+        exchange: 'Binance',
+        listed_exchange: 'Binance',
+        timezone: 'Asia/Ho_Chi_Minh',
+        format: 'price',
+        pricescale: scale,
+        minmov: 1,
+        has_intraday: true,
+        supported_resolutions: ['1', '5', '15', '60', '240', 'D'],
+        intraday_multipliers: ['1', '5', '15', '60', '240'],
+        has_daily: true,
+      }), 0);
+    },
+    getBars: async (symbolInfo, resolution, periodParams, onHistory, onError) => {
+      try {
+        if (!periodParams.firstDataRequest) {
+          onHistory([], { noData: true });
+          return;
+        }
+        const tfMap = { '1': '1m', '5': '5m', '15': '15m', '60': '1h', '240': '4h', 'D': '1d' };
+        const tf = tfMap[resolution] || '15m';
+        const payload = await fetchChartFn(symbolInfo.name, tf);
+        if (!payload?.candles?.length) {
+          onHistory([], { noData: true });
+          return;
+        }
+        const bars = payload.candles.map(k => ({
+          time: k.time * 1000,
+          open: parseFloat(k.open),
+          high: parseFloat(k.high),
+          low: parseFloat(k.low),
+          close: parseFloat(k.close),
+          volume: parseFloat(k.volume || 100),
+        }));
+        onHistory(bars, { noData: false });
+      } catch (err) {
+        onError(err.message || 'Error fetching bars');
+      }
+    },
+    subscribeBars: (symbolInfo, resolution, onTick, listenerGuid) => {
+      subscribers.set(listenerGuid, { symbol: symbolInfo.name, resolution, onTick });
+      if (onRealtimeSubscription) onRealtimeSubscription(symbolInfo.name, resolution, onTick);
+    },
+    unsubscribeBars: (listenerGuid) => {
+      subscribers.delete(listenerGuid);
+    }
+  };
+}
+
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed};

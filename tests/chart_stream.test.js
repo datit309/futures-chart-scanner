@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -156,4 +156,52 @@ test('timeframeToTradingView maps interval strings to TradingView format', () =>
   assert.equal(timeframeToTradingView('4h'), '240');
   assert.equal(timeframeToTradingView('1d'), 'D');
   assert.equal(timeframeToTradingView('unknown'), '15');
+});
+
+test('formatTrendlineShape creates valid TradingView multipoint shape descriptor', () => {
+  const line = {
+    time1: 1700000000,
+    price1: 75000,
+    next_time: 1700010000,
+    next_price: 76000,
+    is_resistance: true,
+  };
+  const shape = formatTrendlineShape(line);
+  assert.equal(shape.options.shape, 'trend_line');
+  assert.equal(shape.options.overrides.linecolor, '#f5b84b');
+  assert.equal(shape.points.length, 2);
+  assert.equal(shape.points[0].time, 1700000000);
+  assert.equal(shape.points[0].price, 75000);
+  assert.equal(shape.points[1].time, 1700010000);
+  assert.equal(shape.points[1].price, 76000);
+});
+
+test('formatOrderBlockShape creates rectangle shape descriptor', () => {
+  const ob = {
+    type: 'BULLISH_OB',
+    timestamp: 1700000000000,
+    top: 76500,
+    bottom: 76000,
+  };
+  const shape = formatOrderBlockShape(ob, 1700020000);
+  assert.equal(shape.options.shape, 'rectangle');
+  assert.equal(shape.options.overrides.backgroundColor, 'rgba(0, 214, 154, 0.20)');
+  assert.equal(shape.points[0].price, 76500);
+  assert.equal(shape.points[1].price, 76000);
+  assert.equal(shape.points[1].time, 1700020000);
+});
+
+test('createTradingViewDatafeed resolves symbol with correct pricescale', async () => {
+  const datafeed = createTradingViewDatafeed(async () => ({ candles: [] }));
+  let resolved = null;
+  datafeed.resolveSymbol('BTCUSDT', (info) => { resolved = info; }, () => {});
+  await new Promise(r => setTimeout(r, 10));
+  assert.ok(resolved);
+  assert.equal(resolved.name, 'BTCUSDT');
+  assert.equal(resolved.pricescale, 100);
+
+  let pepeResolved = null;
+  datafeed.resolveSymbol('1000PEPEUSDT', (info) => { pepeResolved = info; }, () => {});
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(pepeResolved.pricescale, 100000);
 });
