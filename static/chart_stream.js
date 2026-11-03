@@ -26,8 +26,12 @@ export function formatCandleCountdown(nowMs, timeframe = '15m') {
   const intervalSec = secMap[timeframe] || 900;
   const nowSec = Math.floor(nowMs / 1000);
   const remainingSec = intervalSec - (nowSec % intervalSec);
-  const m = Math.floor(remainingSec / 60);
+  const h = Math.floor(remainingSec / 3600);
+  const m = Math.floor((remainingSec % 3600) / 60);
   const s = remainingSec % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
