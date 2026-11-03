@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -85,7 +85,7 @@ test('drawZoneBands renders realistic server S/R zone across chart history', () 
   const series={priceToCoordinate:p=>p};
   drawZoneBands(ctx,chart,series,[{bottom:10,top:12,kind:'SUPPORT_RESISTANCE'}],[],[{time:100},{time:200}],200,100,true,false);
   assert.equal(fills.length,1);
-  assert.equal(fills[0].color,'rgba(53,119,199,.12)');
+  assert.equal(fills[0].color,'rgba(101,207,255,.05)');
   assert.deepEqual(fills[0].args,[100,10,100,2]);
 });
 
@@ -95,4 +95,65 @@ test('market structure selects best line by touches then recency then residual',
   const accurate={is_resistance:true,touches:5,point2:[8,8],residual:0.001};
   const support={is_resistance:false,touches:3,point2:[7,7],residual:0.01};
   assert.deepEqual(chooseMarketStructure([weak,fresh,accurate,support]),[accurate,support]);
+});
+
+test('formatOutcomeBadge returns correct styling and text for WIN, LOSS, and OPEN', () => {
+  assert.deepEqual(formatOutcomeBadge({status: 'WIN', pnl_r: 2.2}), {
+    text: 'WIN +2.2R',
+    color: '#00d69a',
+    className: 'badge-win',
+  });
+  assert.deepEqual(formatOutcomeBadge({status: 'LOSS', pnl_r: -1.0}), {
+    text: 'LOSS -1.0R',
+    color: '#ff5e6e',
+    className: 'badge-loss',
+  });
+  assert.deepEqual(formatOutcomeBadge({status: 'OPEN', floating_r: 0.8}), {
+    text: 'ACTIVE (+0.8R)',
+    color: '#65cfff',
+    className: 'badge-open',
+  });
+});
+
+test('filterSignals partitions signals by tab filter', () => {
+  const sigs = [
+    {id: 1, status: 'OPEN'},
+    {id: 2, status: 'WIN'},
+    {id: 3, status: 'LOSS'},
+  ];
+  assert.equal(filterSignals(sigs, 'ALL').length, 3);
+  assert.deepEqual(filterSignals(sigs, 'ACTIVE'), [{id: 1, status: 'OPEN'}]);
+  assert.deepEqual(filterSignals(sigs, 'HISTORY'), [{id: 2, status: 'WIN'}, {id: 3, status: 'LOSS'}]);
+});
+
+test('formatCandleCountdown computes remaining mm:ss until candle close', () => {
+  assert.equal(formatCandleCountdown(850 * 1000, '15m'), '00:50');
+  assert.equal(formatCandleCountdown(3475 * 1000, '1h'), '02:05');
+});
+
+test('structureToOverlays includes order_blocks, regression_channel, and forecast_path', () => {
+  const payload = {
+    order_blocks: [{type: 'BULLISH_OB', top: 100, bottom: 98}],
+    regression_channel: {upper_series: [{time: 1, value: 105}]},
+    forecast_path: [{time: 10, value: 102}],
+  };
+  const res = structureToOverlays(payload);
+  assert.deepEqual(res.order_blocks, payload.order_blocks);
+  assert.deepEqual(res.regression_channel, payload.regression_channel);
+  assert.deepEqual(res.forecast_path, payload.forecast_path);
+});
+
+test('symbolToTradingView maps futures symbols to Binance perp contracts', () => {
+  assert.equal(symbolToTradingView('BTCUSDT'), 'BINANCE:BTCUSDT.P');
+  assert.equal(symbolToTradingView('ETHUSDT'), 'BINANCE:ETHUSDT.P');
+  assert.equal(symbolToTradingView('1000PEPEUSDT'), 'BINANCE:1000PEPEUSDT.P');
+  assert.equal(symbolToTradingView(''), 'BINANCE:BTCUSDT.P');
+});
+
+test('timeframeToTradingView maps interval strings to TradingView format', () => {
+  assert.equal(timeframeToTradingView('15m'), '15');
+  assert.equal(timeframeToTradingView('1h'), '60');
+  assert.equal(timeframeToTradingView('4h'), '240');
+  assert.equal(timeframeToTradingView('1d'), 'D');
+  assert.equal(timeframeToTradingView('unknown'), '15');
 });
