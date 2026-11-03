@@ -6,3 +6,7 @@ saved_charts/*.png
 
 
 .serena/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
