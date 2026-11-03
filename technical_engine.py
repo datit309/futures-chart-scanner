@@ -105,48 +105,56 @@ class TechnicalEngine:
         high_swings = [s for s in swings if s.is_high]
         low_swings = [s for s in swings if not s.is_high]
 
-        # 1. Resistance / Downtrend lines (connecting Swing Highs)
+        # 1. Resistance lines (connecting Swing Highs)
         for i in range(len(high_swings)):
             for j in range(i + 1, len(high_swings)):
                 p1, p2 = high_swings[i], high_swings[j]
-                if p2.index - p1.index < 3:
+                dx = p2.index - p1.index
+                if dx < 3:
                     continue
-                # Downward slope (resistance)
-                slope = (p2.price - p1.price) / (p2.index - p1.index)
+                slope = (p2.price - p1.price) / dx
                 intercept = p1.price - slope * p1.index
 
-                # Resistance lines should slope downwards or slightly flat
+                # Resistance lines should slope downwards or align with channel
                 if slope > 0.05 * (p1.price / n_bars):
                     continue
 
-                # Check violations (no candle CLOSE should pierce above the line between p1 and p2)
+                # Strict violation check from p1 up to bar before current:
+                # Candle body (max(open, close)) must NOT pierce above the line!
                 violated = False
-                for bar_idx in range(p1.index, p2.index + 1):
+                for bar_idx in range(p1.index, n_bars - 1):
                     line_val = slope * bar_idx + intercept
-                    if klines[bar_idx]["close"] > line_val * (1 + tol):
+                    body_top = max(klines[bar_idx]["open"], klines[bar_idx]["close"])
+                    high_val = klines[bar_idx]["high"]
+                    if body_top > line_val * (1 + tol):
+                        violated = True
+                        break
+                    if high_val > line_val * (1 + tol * 1.5):
                         violated = True
                         break
                 if violated:
                     continue
 
-                # Count touches along the entire line up to the bar before current
-                touches = 0
-                touch_indices = []
-                for bar_idx in range(p1.index, n_bars - 1):
-                    line_val = slope * bar_idx + intercept
-                    high_val = klines[bar_idx]["high"]
-                    # Touch if wick came close to line
+                # Count touches: anchors p1 and p2, plus any distinct peak testing the line
+                touch_indices = [p1.index, p2.index]
+                for b in range(p1.index + 1, n_bars - 1):
+                    if b in touch_indices:
+                        continue
+                    line_val = slope * b + intercept
+                    high_val = klines[bar_idx := b]["high"]
                     if abs(high_val - line_val) / line_val <= tol:
-                        touches += 1
-                        touch_indices.append(bar_idx)
-                    elif klines[bar_idx]["close"] > line_val * (1 + tol):
-                        # Pierced before the latest bars
-                        violated = True
-                        break
+                        is_peak = high_val >= klines[b - 1]["high"] and (b == n_bars - 2 or high_val >= klines[b + 1]["high"])
+                        if is_peak and all(abs(b - tb) >= 3 for tb in touch_indices):
+                            touch_indices.append(b)
 
-                if not violated and touches >= req_touches:
+                touch_indices = sorted(set(touch_indices))
+                touches = len(touch_indices)
+
+                if touches >= req_touches:
                     curr_val = slope * (n_bars - 1) + intercept
-                    trendlines.append(Trendline(
+                    residuals = [abs(klines[b]["high"] - (slope * b + intercept)) / (slope * b + intercept) for b in touch_indices]
+                    avg_residual = sum(residuals) / len(residuals) if residuals else 0.0
+                    tl = Trendline(
                         point1=(p1.index, p1.price),
                         point2=(p2.index, p2.price),
                         slope=slope,
@@ -155,48 +163,60 @@ class TechnicalEngine:
                         is_resistance=True,
                         current_value=curr_val,
                         touch_indices=touch_indices
-                    ))
+                    )
+                    tl.residual = avg_residual
+                    trendlines.append(tl)
 
-        # 2. Support / Uptrend lines (connecting Swing Lows)
+        # 2. Support lines (connecting Swing Lows)
         for i in range(len(low_swings)):
             for j in range(i + 1, len(low_swings)):
                 p1, p2 = low_swings[i], low_swings[j]
-                if p2.index - p1.index < 3:
+                dx = p2.index - p1.index
+                if dx < 3:
                     continue
-                # Upward slope (support)
-                slope = (p2.price - p1.price) / (p2.index - p1.index)
+                slope = (p2.price - p1.price) / dx
                 intercept = p1.price - slope * p1.index
 
-                # Support lines should slope upwards or slightly flat
+                # Support lines should slope upwards or align with channel
                 if slope < -0.05 * (p1.price / n_bars):
                     continue
 
-                # Check violations
+                # Strict violation check:
+                # Candle body (min(open, close)) must NOT pierce below the line!
                 violated = False
-                for bar_idx in range(p1.index, p2.index + 1):
+                for bar_idx in range(p1.index, n_bars - 1):
                     line_val = slope * bar_idx + intercept
-                    if klines[bar_idx]["close"] < line_val * (1 - tol):
+                    body_bottom = min(klines[bar_idx]["open"], klines[bar_idx]["close"])
+                    low_val = klines[bar_idx]["low"]
+                    if body_bottom < line_val * (1 - tol):
+                        violated = True
+                        break
+                    if low_val < line_val * (1 - tol * 1.5):
                         violated = True
                         break
                 if violated:
                     continue
 
-                # Count touches
-                touches = 0
-                touch_indices = []
-                for bar_idx in range(p1.index, n_bars - 1):
-                    line_val = slope * bar_idx + intercept
-                    low_val = klines[bar_idx]["low"]
+                # Count touches: anchors p1 and p2, plus any distinct trough testing the line
+                touch_indices = [p1.index, p2.index]
+                for b in range(p1.index + 1, n_bars - 1):
+                    if b in touch_indices:
+                        continue
+                    line_val = slope * b + intercept
+                    low_val = klines[bar_idx := b]["low"]
                     if abs(low_val - line_val) / line_val <= tol:
-                        touches += 1
-                        touch_indices.append(bar_idx)
-                    elif klines[bar_idx]["close"] < line_val * (1 - tol):
-                        violated = True
-                        break
+                        is_trough = low_val <= klines[b - 1]["low"] and (b == n_bars - 2 or low_val <= klines[b + 1]["low"])
+                        if is_trough and all(abs(b - tb) >= 3 for tb in touch_indices):
+                            touch_indices.append(b)
 
-                if not violated and touches >= req_touches:
+                touch_indices = sorted(set(touch_indices))
+                touches = len(touch_indices)
+
+                if touches >= req_touches:
                     curr_val = slope * (n_bars - 1) + intercept
-                    trendlines.append(Trendline(
+                    residuals = [abs(klines[b]["low"] - (slope * b + intercept)) / (slope * b + intercept) for b in touch_indices]
+                    avg_residual = sum(residuals) / len(residuals) if residuals else 0.0
+                    tl = Trendline(
                         point1=(p1.index, p1.price),
                         point2=(p2.index, p2.price),
                         slope=slope,
@@ -205,25 +225,35 @@ class TechnicalEngine:
                         is_resistance=False,
                         current_value=curr_val,
                         touch_indices=touch_indices
-                    ))
+                    )
+                    tl.residual = avg_residual
+                    trendlines.append(tl)
 
         # Sort by most touches and freshness
         trendlines.sort(key=lambda x: (x.touches, x.point2[0]), reverse=True)
         return trendlines
 
 
-    def select_strongest_trendlines(self, trendlines: List[Trendline]) -> List[Trendline]:
-        """Choose at most one support and resistance line deterministically.
+    def select_strongest_trendlines(self, trendlines: List[Trendline], n_bars: Optional[int] = None) -> List[Trendline]:
+        """Choose at most one active support and resistance line deterministically.
 
-        Ranking: touch count (descending), anchor recency (descending), then
-        residual (ascending). Equivalent geometry is deduplicated per direction.
+        Ranking prioritizes:
+        1. Active relevance (anchor 2 in recent price action vs ancient history).
+        2. Touch validation (lines with confirmed touches).
+        3. Touch count (descending).
+        4. Span (longer baseline is more reliable).
+        5. Minimal residual error.
         """
         selected = []
+        recency_threshold = (n_bars - 40) if n_bars and n_bars > 50 else -1
+
         for is_resistance in (True, False):
             candidates = [line for line in trendlines if line.is_resistance is is_resistance]
             candidates.sort(key=lambda line: (
+                -1 if (recency_threshold > 0 and line.point2[0] >= recency_threshold) else 0,
                 -line.touches,
                 -line.point2[0],
+                -(line.point2[0] - line.point1[0]),
                 float(getattr(line, "residual", float("inf"))),
                 line.point1[0],
                 line.point2[0],
@@ -365,3 +395,145 @@ class TechnicalEngine:
                         ))
 
         return signals
+
+    def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint]) -> List[Dict[str, Any]]:
+        """
+        Detect Institutional Order Blocks (SMC):
+        - Bullish OB: The last down candle (close < open) prior to an aggressive upward break of structure.
+        - Bearish OB: The last up candle (close > open) prior to an aggressive downward break of structure.
+        """
+        n = len(klines)
+        if n < 8 or not swings:
+            return []
+
+        swing_highs = [s for s in swings if s.is_high]
+        swing_lows = [s for s in swings if not s.is_high]
+        order_blocks = []
+
+        # Bullish OBs
+        for idx in range(3, n):
+            c = klines[idx]["close"]
+            prev_c = klines[idx - 1]["close"]
+            recent_highs = [sh for sh in swing_highs if sh.index < idx and sh.index >= idx - 25]
+            if recent_highs:
+                last_sh = recent_highs[-1]
+                if prev_c <= last_sh.price and c > last_sh.price:
+                    candidates = [
+                        (k_i, klines[k_i]) for k_i in range(last_sh.index, idx)
+                        if klines[k_i]["close"] < klines[k_i]["open"]
+                    ]
+                    if candidates:
+                        ob_idx, ob_candle = min(candidates, key=lambda x: x[1]["low"])
+                        order_blocks.append({
+                            "type": "BULLISH_OB",
+                            "index": ob_idx,
+                            "top": max(ob_candle["open"], ob_candle["close"]),
+                            "bottom": ob_candle["low"],
+                            "timestamp": ob_candle["timestamp"],
+                            "label": "OB Demand",
+                        })
+
+        # Bearish OBs
+        for idx in range(3, n):
+            c = klines[idx]["close"]
+            prev_c = klines[idx - 1]["close"]
+            recent_lows = [sl for sl in swing_lows if sl.index < idx and sl.index >= idx - 25]
+            if recent_lows:
+                last_sl = recent_lows[-1]
+                if prev_c >= last_sl.price and c < last_sl.price:
+                    candidates = [
+                        (k_i, klines[k_i]) for k_i in range(last_sl.index, idx)
+                        if klines[k_i]["close"] > klines[k_i]["open"]
+                    ]
+                    if candidates:
+                        ob_idx, ob_candle = max(candidates, key=lambda x: x[1]["high"])
+                        order_blocks.append({
+                            "type": "BEARISH_OB",
+                            "index": ob_idx,
+                            "top": ob_candle["high"],
+                            "bottom": min(ob_candle["open"], ob_candle["close"]),
+                            "timestamp": ob_candle["timestamp"],
+                            "label": "OB Supply",
+                        })
+
+        seen = set()
+        unique_obs = []
+        for ob in reversed(order_blocks):
+            key = (ob["type"], ob["index"])
+            if key not in seen:
+                seen.add(key)
+                unique_obs.append(ob)
+        unique_obs.reverse()
+        return unique_obs[-4:]
+
+    def calculate_regression_channel(self, klines: List[Dict[str, Any]], window: int = 60) -> Optional[Dict[str, Any]]:
+        """
+        Calculate Statistical Linear Regression Channel (with +-2 standard deviation bands).
+        """
+        n = len(klines)
+        if n < 10:
+            return None
+        w = min(window, n)
+        subset = klines[-w:]
+        x = np.arange(w)
+        closes = np.array([float(k["close"]) for k in subset])
+        slope, intercept = np.polyfit(x, closes, 1)
+        fitted = slope * x + intercept
+        residuals = closes - fitted
+        std_dev = float(np.std(residuals))
+
+        upper_series = []
+        middle_series = []
+        lower_series = []
+
+        for i, k in enumerate(subset):
+            t_sec = int(k["timestamp"] / 1000)
+            mid_val = float(fitted[i])
+            upper_series.append({"time": t_sec, "value": round(mid_val + 2 * std_dev, 4)})
+            middle_series.append({"time": t_sec, "value": round(mid_val, 4)})
+            lower_series.append({"time": t_sec, "value": round(mid_val - 2 * std_dev, 4)})
+
+        curr_mid = float(fitted[-1])
+        return {
+            "slope": float(slope),
+            "intercept": float(intercept),
+            "std_dev": std_dev,
+            "upper": round(curr_mid + 2 * std_dev, 4),
+            "middle": round(curr_mid, 4),
+            "lower": round(curr_mid - 2 * std_dev, 4),
+            "upper_series": upper_series,
+            "middle_series": middle_series,
+            "lower_series": lower_series,
+        }
+
+    def generate_forecast_path(self, signal: Any, klines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Generate projected price trajectory path into future bars.
+        Points: [Current Close -> Retest (+1 bar) -> Target (+3 bars)]
+        """
+        if not klines or not signal:
+            return []
+        last_k = klines[-1]
+        t_sec = int(last_k["timestamp"] / 1000)
+        time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if len(klines) > 1 else 900
+
+        def get_val(key, default=None):
+            if isinstance(signal, dict):
+                return signal.get(key, default)
+            return getattr(signal, key, default)
+
+        sig_type = str(get_val("signal_type", "LONG")).upper()
+        is_long = sig_type == "LONG"
+        entry = float(get_val("entry_price") or last_k["close"])
+        sl = float(get_val("stop_loss") or (entry * (0.99 if is_long else 1.01)))
+
+        extra = get_val("extra_targets") or {}
+        tp1_val = extra.get("tp1") if isinstance(extra, dict) else getattr(extra, "tp1", None)
+        tp1 = float(tp1_val or get_val("tp1") or get_val("take_profit") or (entry * (1.02 if is_long else 0.98)))
+
+        retest = entry - (entry - sl) * 0.15 if is_long else entry + (sl - entry) * 0.15
+        return [
+            {"time": t_sec, "value": round(last_k["close"], 4), "stage": "NOW"},
+            {"time": t_sec + time_step, "value": round(retest, 4), "stage": "RETEST"},
+            {"time": t_sec + time_step * 3, "value": round(tp1, 4), "stage": "TARGET"},
+        ]
