@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -141,4 +141,19 @@ test('structureToOverlays includes order_blocks, regression_channel, and forecas
   assert.deepEqual(res.order_blocks, payload.order_blocks);
   assert.deepEqual(res.regression_channel, payload.regression_channel);
   assert.deepEqual(res.forecast_path, payload.forecast_path);
+});
+
+test('symbolToTradingView maps futures symbols to Binance perp contracts', () => {
+  assert.equal(symbolToTradingView('BTCUSDT'), 'BINANCE:BTCUSDT.P');
+  assert.equal(symbolToTradingView('ETHUSDT'), 'BINANCE:ETHUSDT.P');
+  assert.equal(symbolToTradingView('1000PEPEUSDT'), 'BINANCE:1000PEPEUSDT.P');
+  assert.equal(symbolToTradingView(''), 'BINANCE:BTCUSDT.P');
+});
+
+test('timeframeToTradingView maps interval strings to TradingView format', () => {
+  assert.equal(timeframeToTradingView('15m'), '15');
+  assert.equal(timeframeToTradingView('1h'), '60');
+  assert.equal(timeframeToTradingView('4h'), '240');
+  assert.equal(timeframeToTradingView('1d'), 'D');
+  assert.equal(timeframeToTradingView('unknown'), '15');
 });

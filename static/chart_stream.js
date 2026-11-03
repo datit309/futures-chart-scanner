@@ -95,4 +95,30 @@ export function filterSignals(signals, tab = 'ALL') {
   return signals;
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown};
+export function symbolToTradingView(symbol) {
+  const s = (symbol || 'BTCUSDT').toUpperCase().trim();
+  if (!s) return 'BINANCE:BTCUSDT.P';
+  if (s.startsWith('BINANCE:')) return s.endsWith('.P') ? s : s + '.P';
+  return `BINANCE:${s}.P`;
+}
+
+export function timeframeToTradingView(timeframe) {
+  const tf = (timeframe || '15m').toLowerCase().trim();
+  const map = {
+    '1m': '1',
+    '3m': '3',
+    '5m': '5',
+    '15m': '15',
+    '30m': '30',
+    '1h': '60',
+    '2h': '120',
+    '4h': '240',
+    '6h': '360',
+    '12h': '720',
+    '1d': 'D',
+    '1w': 'W',
+  };
+  return map[tf] || '15';
+}
+
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView};
