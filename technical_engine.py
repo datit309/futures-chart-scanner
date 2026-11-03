@@ -511,17 +511,27 @@ class TechnicalEngine:
         Generate projected price trajectory path into future bars.
         Points: [Current Close -> Retest (+1 bar) -> Target (+3 bars)]
         """
-        if not klines:
+        if not klines or not signal:
             return []
         last_k = klines[-1]
         t_sec = int(last_k["timestamp"] / 1000)
         time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if len(klines) > 1 else 900
 
-        entry = float(getattr(signal, "entry_price", last_k["close"]))
-        tp1 = float(getattr(signal, "extra_targets", {}).get("tp1") or getattr(signal, "take_profit", entry * 1.015))
-        is_long = getattr(signal, "signal_type", "LONG") == "LONG"
+        def get_val(key, default=None):
+            if isinstance(signal, dict):
+                return signal.get(key, default)
+            return getattr(signal, key, default)
 
-        retest = entry - (entry - float(getattr(signal, "stop_loss", entry))) * 0.15 if is_long else entry + (float(getattr(signal, "stop_loss", entry)) - entry) * 0.15
+        sig_type = str(get_val("signal_type", "LONG")).upper()
+        is_long = sig_type == "LONG"
+        entry = float(get_val("entry_price") or last_k["close"])
+        sl = float(get_val("stop_loss") or (entry * (0.99 if is_long else 1.01)))
+
+        extra = get_val("extra_targets") or {}
+        tp1_val = extra.get("tp1") if isinstance(extra, dict) else getattr(extra, "tp1", None)
+        tp1 = float(tp1_val or get_val("tp1") or get_val("take_profit") or (entry * (1.02 if is_long else 0.98)))
+
+        retest = entry - (entry - sl) * 0.15 if is_long else entry + (sl - entry) * 0.15
         return [
             {"time": t_sec, "value": round(last_k["close"], 4), "stage": "NOW"},
             {"time": t_sec + time_step, "value": round(retest, 4), "stage": "RETEST"},

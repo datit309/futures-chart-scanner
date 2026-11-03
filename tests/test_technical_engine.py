@@ -250,3 +250,15 @@ def test_smc_order_blocks_and_regression_channel():
     # Last step: target
     assert forecast[-1]["value"] >= 120.0
     assert forecast[-1]["time"] > forecast[0]["time"]
+
+    # Test SHORT forecast path with dict signal (ensuring dicts are parsed correctly)
+    short_dict_signal = {
+        "signal_type": "SHORT",
+        "entry_price": 100.0,
+        "stop_loss": 103.0,
+        "tp1": 95.0,
+        "tp2": 93.0
+    }
+    short_forecast = engine.generate_forecast_path(short_dict_signal, klines)
+    assert len(short_forecast) >= 3
+    assert short_forecast[-1]["value"] <= 95.0, f"Expected SHORT target <= 95.0, got {short_forecast[-1]['value']}"
