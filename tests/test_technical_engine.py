@@ -262,3 +262,65 @@ def test_smc_order_blocks_and_regression_channel():
     short_forecast = engine.generate_forecast_path(short_dict_signal, klines)
     assert len(short_forecast) >= 3
     assert short_forecast[-1]["value"] <= 95.0, f"Expected SHORT target <= 95.0, got {short_forecast[-1]['value']}"
+
+
+def test_quant_indicators_and_regime_classification():
+    engine = TechnicalEngine()
+    # Create 35 synthetic bars with alternating fluctuations to simulate ranging
+    ranging_prices = [(100 + (i % 2) * 2, 103, 99, 100 + ((i + 1) % 2) * 2) for i in range(40)]
+    ranging_klines = create_synthetic_klines(ranging_prices)
+
+    # 1. ATR test
+    atr = engine.calc_atr(ranging_klines, period=14)
+    assert len(atr) == len(ranging_klines)
+    assert atr[-1] > 0
+
+    # 2. RSI test
+    rsi = engine.calc_rsi(ranging_klines, period=14)
+    assert len(rsi) == len(ranging_klines)
+    assert 0 <= rsi[-1] <= 100
+
+    # 3. Bollinger Bands test
+    upper, middle, lower = engine.calc_bollinger_bands(ranging_klines, period=20, num_std=2.0)
+    assert len(upper) == len(ranging_klines)
+    assert upper[-1] >= middle[-1] >= lower[-1]
+
+    # 4. ADX test
+    adx = engine.calc_adx(ranging_klines, period=14)
+    assert len(adx) == len(ranging_klines)
+    assert adx[-1] >= 0
+
+    # 5. Market Regime test
+    # In tight alternating range, regime should be RANGING
+    regime = engine.detect_market_regime(ranging_klines)
+    assert regime["regime"] == "RANGING"
+
+    # Strongly trending prices
+    trending_prices = [(100 + i * 2, 102 + i * 2, 99 + i * 2, 101.5 + i * 2) for i in range(50)]
+    trending_klines = create_synthetic_klines(trending_prices)
+    trend_regime = engine.detect_market_regime(trending_klines)
+    assert trend_regime["regime"] in ("TRENDING_BULL", "TRENDING_BEAR")
+    assert trend_regime["adx"] > 25
+
+
+def test_regime_adaptive_signals_generation():
+    engine = TechnicalEngine()
+    # 1. Simulate Mean Reversion Oversold Trap in Ranging Market:
+    prices = []
+    for i in range(20):
+        val = 100 + 3 * (1 if i % 2 == 0 else -1)
+        prices.append((val - 1, val + 2, val - 2, val + 1))
+    prices.append((102.0, 102.5, 98.0, 98.5))
+    prices.append((98.5, 99.0, 95.0, 95.5))
+    prices.append((95.5, 96.0, 91.0, 94.5))
+    klines = create_synthetic_klines(prices)
+
+    signals = engine.analyze_market(klines, symbol="BTCUSDT", timeframe="15m")
+    mr_signals = [s for s in signals if s.pattern == PatternType.MEAN_REVERSION_TRAP]
+    assert len(mr_signals) > 0
+    sig = mr_signals[0]
+    assert sig.signal_type == "LONG"
+    assert sig.regime == "RANGING"
+    assert sig.take_profit > sig.entry_price
+    assert sig.stop_loss < sig.entry_price
+    assert sig.tp1 > 0

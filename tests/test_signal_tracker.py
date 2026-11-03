@@ -154,3 +154,36 @@ def test_signal_outcome_evaluation_rules(tracker):
     assert stats["win_rate"] == 50.0
     assert stats["net_pnl_r"] == pytest.approx(2.4, abs=0.01)  # (2.2 * 2) - 2.0 = 2.4R
 
+
+def test_breakeven_protection_on_tp1_hit(tracker):
+    # LONG trade with TP1 at 79000, TP2 at 80200, Entry at 78000, SL at 77000
+    sig = {
+        "symbol": "SOLUSDT",
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "SMC_ORDER_BLOCK_RETEST",
+        "entry_price": 78000.0,
+        "stop_loss": 77000.0,
+        "tp1": 79000.0,
+        "tp2": 80200.0,
+        "risk_reward": 2.2,
+        "timestamp": 1700000000.0,
+    }
+    sig_id = tracker.save_signal(sig, [{"timestamp": 1700000000000, "open": 78000, "high": 78100, "low": 77900, "close": 78000}])
+
+    # Candle 1: High hits TP1 (79200 >= 79000)
+    c1 = {"timestamp": 1700000900000, "open": 78000, "high": 79200, "low": 77900, "close": 78800}
+    res1 = tracker.evaluate_signal(sig_id, c1)
+    # Trade should remain OPEN with breakeven_reached = 1, stop_loss moved to entry 78000
+    assert res1["status"] == "OPEN"
+    assert res1.get("breakeven_reached") == 1
+    assert res1["stop_loss"] == 78000.0
+
+    # Candle 2: Price drops back down to 77800 (below entry 78000)
+    c2 = {"timestamp": 1700001800000, "open": 78500, "high": 78600, "low": 77800, "close": 77900}
+    res2 = tracker.evaluate_signal(sig_id, c2)
+    # Stopped out at Breakeven with partial win, NOT -1.0R loss!
+    assert res2["status"] == "WIN"
+    assert res2["exit_price"] == 78000.0
+    assert res2["pnl_r"] > 0.0
+

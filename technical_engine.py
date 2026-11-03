@@ -7,6 +7,8 @@ class PatternType(str, Enum):
     TRENDLINE_BREAKOUT = "TRENDLINE_BREAKOUT"
     SR_BOUNCE = "SR_BOUNCE"
     FVG_RETEST = "FVG_RETEST"
+    MEAN_REVERSION_TRAP = "MEAN_REVERSION_TRAP"
+    SMC_ORDER_BLOCK_RETEST = "SMC_ORDER_BLOCK_RETEST"
 
 @dataclass
 class SwingPoint:
@@ -43,6 +45,9 @@ class MarketSignal:
     trendlines: List[Trendline] = field(default_factory=list)
     sr_zones: List[Tuple[float, float]] = field(default_factory=list)
     fvgs: List[Dict[str, Any]] = field(default_factory=list)
+    regime: str = "RANGING"
+    tp1: float = 0.0
+    tp2: float = 0.0
 
 class TechnicalEngine:
     def __init__(self, swing_window: int = 2, min_touches: int = 3, tolerance_pct: float = 0.005):
@@ -321,7 +326,10 @@ class TechnicalEngine:
 
     def analyze_market(self, klines: List[Dict[str, Any]], symbol: str = "BTCUSDT", timeframe: str = "15m") -> List[MarketSignal]:
         """
-        Analyze candlestick chart data and identify actionable Breakout / Reversal setups.
+        Analyze candlestick chart data using Regime-Adaptive Quantitative Rules:
+        - In RANGING regime (ADX < 26): Generate MEAN_REVERSION_TRAP signals (fade BB piercings with RSI exhaustion).
+        - In TRENDING regime (ADX >= 26): Generate SMC_ORDER_BLOCK_RETEST signals (pullbacks into Demand/Supply).
+        - Fallback: Trendline Breakouts.
         """
         if len(klines) < 10:
             return []
@@ -330,69 +338,207 @@ class TechnicalEngine:
         trendlines = self.detect_trendlines(klines, swings)
         sr_zones = self.detect_sr_zones(klines, swings)
         fvgs = self.detect_fvg(klines)
+        order_blocks = self.detect_order_blocks(klines, swings)
 
+        regime_info = self.detect_market_regime(klines)
+        regime = regime_info["regime"]
         signals: List[MarketSignal] = []
+
         latest_bar = klines[-1]
         prev_bar = klines[-2]
-        curr_price = latest_bar["close"]
+        curr_price = float(latest_bar["close"])
 
-        # Check Trendline Breakouts
-        for tl in trendlines:
-            line_val_latest = tl.value_at(len(klines) - 1)
-            line_val_prev = tl.value_at(len(klines) - 2)
+        # Compute ATR, RSI, Bollinger Bands
+        atr_series = self.calc_atr(klines, 14)
+        curr_atr = atr_series[-1] if atr_series else (curr_price * 0.01)
+        rsi_series = self.calc_rsi(klines, 14)
+        curr_rsi = rsi_series[-1] if rsi_series else 50.0
+        upper_bb, mid_bb, lower_bb = self.calc_bollinger_bands(klines, 20, 2.0)
+        curr_upper = upper_bb[-1]
+        curr_mid = mid_bb[-1]
+        curr_lower = lower_bb[-1]
 
-            # Bullish Breakout: Resistance line broken to the upside
-            if tl.is_resistance:
-                if prev_bar["close"] <= line_val_prev * 1.002 and latest_bar["close"] > line_val_latest:
-                    # Find recent Swing Low for Stop Loss
-                    recent_lows = [s.price for s in swings if not s.is_high and s.index > tl.point1[0]]
-                    sl = min(recent_lows) if recent_lows else latest_bar["low"] * 0.992
-                    sl = min(sl, latest_bar["low"] * 0.996)  # Ensure SL is below breakout candle
+        body = abs(float(latest_bar["close"]) - float(latest_bar["open"]))
+        lower_wick = min(float(latest_bar["open"]), float(latest_bar["close"])) - float(latest_bar["low"])
+        upper_wick = float(latest_bar["high"]) - max(float(latest_bar["open"]), float(latest_bar["close"]))
 
-                    risk = curr_price - sl
-                    if risk > 0:
-                        tp = curr_price + risk * 2.2
-                        rr = (tp - curr_price) / risk
+        # 1. RANGE-BOUND REGIME: Mean Reversion Trap (Fading Extremes)
+        if regime == "RANGING":
+            # Bullish Mean Reversion Trap
+            if (float(latest_bar["low"]) <= curr_lower or float(prev_bar["low"]) <= curr_lower) and curr_rsi <= 45 and curr_price > float(latest_bar["low"]):
+                sl = float(latest_bar["low"]) - curr_atr * 0.2
+                risk = curr_price - sl
+                if risk > 0 and curr_mid > curr_price:
+                    tp1 = curr_mid
+                    tp2 = curr_upper
+                    rr = (tp2 - curr_price) / risk
+                    if rr >= 1.2:
                         signals.append(MarketSignal(
                             symbol=symbol,
                             timeframe=timeframe,
                             signal_type="LONG",
-                            pattern=PatternType.TRENDLINE_BREAKOUT,
+                            pattern=PatternType.MEAN_REVERSION_TRAP,
                             entry_price=curr_price,
                             stop_loss=sl,
-                            take_profit=tp,
-                            risk_reward=rr,
-                            description=f"Bullish Breakout over Resistance Trendline ({tl.touches} touches)",
-                            trendlines=[tl],
+                            take_profit=tp1 if ((tp1 - curr_price) / risk >= 1.0) else tp2,
+                            risk_reward=round(rr, 2),
+                            description=f"Bullish Mean Reversion (Oversold BB Trap + RSI {curr_rsi:.1f})",
+                            trendlines=trendlines[:1],
                             sr_zones=sr_zones,
-                            fvgs=fvgs[-3:] if fvgs else []
+                            fvgs=fvgs[-3:] if fvgs else [],
+                            regime="RANGING",
+                            tp1=round(tp1, 4),
+                            tp2=round(tp2, 4)
                         ))
 
-            # Bearish Breakout: Support line broken to the downside
-            elif not tl.is_resistance:
-                if prev_bar["close"] >= line_val_prev * 0.998 and latest_bar["close"] < line_val_latest:
-                    recent_highs = [s.price for s in swings if s.is_high and s.index > tl.point1[0]]
-                    sl = max(recent_highs) if recent_highs else latest_bar["high"] * 1.008
-                    sl = max(sl, latest_bar["high"] * 1.004)
-
-                    risk = sl - curr_price
-                    if risk > 0:
-                        tp = curr_price - risk * 2.2
-                        rr = (curr_price - tp) / risk
+            # Bearish Mean Reversion Trap
+            elif (float(latest_bar["high"]) >= curr_upper or float(prev_bar["high"]) >= curr_upper) and curr_rsi >= 55 and curr_price < float(latest_bar["high"]):
+                sl = float(latest_bar["high"]) + curr_atr * 0.2
+                risk = sl - curr_price
+                if risk > 0 and curr_mid < curr_price:
+                    tp1 = curr_mid
+                    tp2 = curr_lower
+                    rr = (curr_price - tp2) / risk
+                    if rr >= 1.2:
                         signals.append(MarketSignal(
                             symbol=symbol,
                             timeframe=timeframe,
                             signal_type="SHORT",
-                            pattern=PatternType.TRENDLINE_BREAKOUT,
+                            pattern=PatternType.MEAN_REVERSION_TRAP,
                             entry_price=curr_price,
                             stop_loss=sl,
-                            take_profit=tp,
-                            risk_reward=rr,
-                            description=f"Bearish Breakdown under Support Trendline ({tl.touches} touches)",
-                            trendlines=[tl],
+                            take_profit=tp1 if ((curr_price - tp1) / risk >= 1.0) else tp2,
+                            risk_reward=round(rr, 2),
+                            description=f"Bearish Mean Reversion (Overbought BB Trap + RSI {curr_rsi:.1f})",
+                            trendlines=trendlines[:1],
                             sr_zones=sr_zones,
-                            fvgs=fvgs[-3:] if fvgs else []
+                            fvgs=fvgs[-3:] if fvgs else [],
+                            regime="RANGING",
+                            tp1=round(tp1, 4),
+                            tp2=round(tp2, 4)
                         ))
+
+        # 2. TRENDING REGIME: SMC Order Block Retest
+        elif regime in ("TRENDING_BULL", "TRENDING_BEAR"):
+            is_bull = regime == "TRENDING_BULL"
+            if is_bull:
+                recent_obs = [ob for ob in order_blocks if ob["type"] == "BULLISH_OB"]
+                if recent_obs:
+                    ob = recent_obs[-1]
+                    if float(latest_bar["low"]) <= ob["top"] * 1.002 and curr_price >= ob["bottom"] * 0.998:
+                        sl = ob["bottom"] - curr_atr * 0.3
+                        risk = curr_price - sl
+                        if risk > 0:
+                            tp1 = curr_price + risk * 1.5
+                            tp2 = curr_price + risk * 2.5
+                            signals.append(MarketSignal(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                signal_type="LONG",
+                                pattern=PatternType.SMC_ORDER_BLOCK_RETEST,
+                                entry_price=curr_price,
+                                stop_loss=sl,
+                                take_profit=tp2,
+                                risk_reward=2.5,
+                                description=f"Bullish SMC Retest on Demand Block ({ob['label']})",
+                                trendlines=trendlines[:1],
+                                sr_zones=sr_zones,
+                                fvgs=fvgs[-3:] if fvgs else [],
+                                regime=regime,
+                                tp1=round(tp1, 4),
+                                tp2=round(tp2, 4)
+                            ))
+            else:
+                recent_obs = [ob for ob in order_blocks if ob["type"] == "BEARISH_OB"]
+                if recent_obs:
+                    ob = recent_obs[-1]
+                    if float(latest_bar["high"]) >= ob["bottom"] * 0.998 and curr_price <= ob["top"] * 1.002:
+                        sl = ob["top"] + curr_atr * 0.3
+                        risk = sl - curr_price
+                        if risk > 0:
+                            tp1 = curr_price - risk * 1.5
+                            tp2 = curr_price - risk * 2.5
+                            signals.append(MarketSignal(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                signal_type="SHORT",
+                                pattern=PatternType.SMC_ORDER_BLOCK_RETEST,
+                                entry_price=curr_price,
+                                stop_loss=sl,
+                                take_profit=tp2,
+                                risk_reward=2.5,
+                                description=f"Bearish SMC Retest on Supply Block ({ob['label']})",
+                                trendlines=trendlines[:1],
+                                sr_zones=sr_zones,
+                                fvgs=fvgs[-3:] if fvgs else [],
+                                regime=regime,
+                                tp1=round(tp1, 4),
+                                tp2=round(tp2, 4)
+                            ))
+
+        # 3. If no regime signal, check for Trendline Breakout
+        if not signals:
+            for tl in trendlines:
+                line_val_latest = tl.value_at(len(klines) - 1)
+                line_val_prev = tl.value_at(len(klines) - 2)
+
+                # Bullish Breakout: Resistance line broken to the upside
+                if tl.is_resistance:
+                    if prev_bar["close"] <= line_val_prev * 1.002 and latest_bar["close"] > line_val_latest:
+                        recent_lows = [s.price for s in swings if not s.is_high and s.index > tl.point1[0]]
+                        sl = min(recent_lows) if recent_lows else latest_bar["low"] * 0.992
+                        sl = min(sl, latest_bar["low"] * 0.996)
+
+                        risk = curr_price - sl
+                        if risk > 0:
+                            tp = curr_price + risk * 2.2
+                            rr = (tp - curr_price) / risk
+                            signals.append(MarketSignal(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                signal_type="LONG",
+                                pattern=PatternType.TRENDLINE_BREAKOUT,
+                                entry_price=curr_price,
+                                stop_loss=sl,
+                                take_profit=tp,
+                                risk_reward=rr,
+                                description=f"Bullish Breakout over Resistance Trendline ({tl.touches} touches)",
+                                trendlines=[tl],
+                                sr_zones=sr_zones,
+                                fvgs=fvgs[-3:] if fvgs else [],
+                                regime=regime,
+                                tp1=round(curr_price + risk * 1.2, 4),
+                                tp2=round(tp, 4)
+                            ))
+
+                # Bearish Breakout: Support line broken to the downside
+                elif not tl.is_resistance:
+                    if prev_bar["close"] >= line_val_prev * 0.998 and latest_bar["close"] < line_val_latest:
+                        recent_highs = [s.price for s in swings if s.is_high and s.index > tl.point1[0]]
+                        sl = max(recent_highs) if recent_highs else latest_bar["high"] * 1.008
+                        sl = max(sl, latest_bar["high"] * 1.004)
+
+                        risk = sl - curr_price
+                        if risk > 0:
+                            tp = curr_price - risk * 2.2
+                            rr = (curr_price - tp) / risk
+                            signals.append(MarketSignal(
+                                symbol=symbol,
+                                timeframe=timeframe,
+                                signal_type="SHORT",
+                                pattern=PatternType.TRENDLINE_BREAKOUT,
+                                entry_price=curr_price,
+                                stop_loss=sl,
+                                take_profit=tp,
+                                risk_reward=rr,
+                                description=f"Bearish Breakdown under Support Trendline ({tl.touches} touches)",
+                                trendlines=[tl],
+                                sr_zones=sr_zones,
+                                fvgs=fvgs[-3:] if fvgs else [],
+                                regime=regime,
+                                tp1=round(curr_price - risk * 1.2, 4),
+                                tp2=round(tp, 4)
+                            ))
 
         return signals
 
@@ -537,3 +683,147 @@ class TechnicalEngine:
             {"time": t_sec + time_step, "value": round(retest, 4), "stage": "RETEST"},
             {"time": t_sec + time_step * 3, "value": round(tp1, 4), "stage": "TARGET"},
         ]
+
+    def calc_atr(self, klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
+        n = len(klines)
+        if n == 0:
+            return []
+        trs = [float(klines[0]["high"] - klines[0]["low"])]
+        for i in range(1, n):
+            h = float(klines[i]["high"])
+            l = float(klines[i]["low"])
+            pc = float(klines[i - 1]["close"])
+            tr = max(h - l, abs(h - pc), abs(l - pc))
+            trs.append(tr)
+
+        if n <= period:
+            mean_tr = float(np.mean(trs)) if trs else 0.0
+            return [mean_tr] * n
+
+        first_atr = float(np.mean(trs[:period]))
+        atr = [first_atr] * period
+        curr_atr = first_atr
+        for i in range(period, n):
+            curr_atr = (curr_atr * (period - 1) + trs[i]) / period
+            atr.append(curr_atr)
+        return atr
+
+    def calc_rsi(self, klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
+        n = len(klines)
+        if n == 0:
+            return []
+        closes = [float(k["close"]) for k in klines]
+        if n <= period:
+            return [50.0] * n
+        deltas = np.diff(closes)
+        gains = np.where(deltas > 0, deltas, 0.0)
+        losses = np.where(deltas < 0, -deltas, 0.0)
+
+        avg_gain = float(np.mean(gains[:period]))
+        avg_loss = float(np.mean(losses[:period]))
+
+        rsi_list = [50.0] * period
+        if avg_loss == 0:
+            rsi_list.append(100.0)
+        else:
+            rs = avg_gain / avg_loss
+            rsi_list.append(100.0 - (100.0 / (1.0 + rs)))
+
+        for i in range(period, len(deltas)):
+            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+            if avg_loss == 0:
+                rsi_list.append(100.0)
+            else:
+                rs = avg_gain / avg_loss
+                rsi_list.append(100.0 - (100.0 / (1.0 + rs)))
+        return rsi_list
+
+    def calc_bollinger_bands(self, klines: List[Dict[str, Any]], period: int = 20, num_std: float = 2.0) -> Tuple[List[float], List[float], List[float]]:
+        n = len(klines)
+        if n == 0:
+            return [], [], []
+        closes = [float(k["close"]) for k in klines]
+        upper, middle, lower = [], [], []
+        for i in range(n):
+            if i < period:
+                sub = closes[:i + 1]
+            else:
+                sub = closes[i - period + 1:i + 1]
+            m = float(np.mean(sub))
+            s = float(np.std(sub))
+            middle.append(round(m, 4))
+            upper.append(round(m + num_std * s, 4))
+            lower.append(round(m - num_std * s, 4))
+        return upper, middle, lower
+
+    def calc_adx(self, klines: List[Dict[str, Any]], period: int = 14) -> List[float]:
+        n = len(klines)
+        if n <= period:
+            return [0.0] * n
+        tr = []
+        dm_plus = []
+        dm_minus = []
+        for i in range(1, n):
+            h, l = float(klines[i]["high"]), float(klines[i]["low"])
+            ph, pl, pc = float(klines[i - 1]["high"]), float(klines[i - 1]["low"]), float(klines[i - 1]["close"])
+            tr.append(max(h - l, abs(h - pc), abs(l - pc)))
+            up = h - ph
+            down = pl - l
+            dm_plus.append(up if (up > down and up > 0) else 0.0)
+            dm_minus.append(down if (down > up and down > 0) else 0.0)
+
+        tr_s = [sum(tr[:period])]
+        p_s = [sum(dm_plus[:period])]
+        m_s = [sum(dm_minus[:period])]
+        for i in range(period, len(tr)):
+            tr_s.append(tr_s[-1] - (tr_s[-1] / period) + tr[i])
+            p_s.append(p_s[-1] - (p_s[-1] / period) + dm_plus[i])
+            m_s.append(m_s[-1] - (m_s[-1] / period) + dm_minus[i])
+
+        pdi = [100.0 * p / (t if t > 0 else 1.0) for p, t in zip(p_s, tr_s)]
+        mdi = [100.0 * m / (t if t > 0 else 1.0) for m, t in zip(m_s, tr_s)]
+        dx = [100.0 * abs(p - m) / (p + m if (p + m) > 0 else 1.0) for p, m in zip(pdi, mdi)]
+
+        adx = [0.0] * period
+        curr = float(np.mean(dx[:period])) if len(dx) >= period else 0.0
+        adx.append(curr)
+        for d in dx[period:]:
+            curr = (curr * (period - 1) + d) / period
+            adx.append(curr)
+        while len(adx) < n:
+            adx.insert(0, 0.0)
+        return adx[-n:]
+
+    def detect_market_regime(self, klines: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not klines:
+            return {"regime": "RANGING", "adx": 0.0, "ema50": 0.0, "ema200": 0.0}
+        adx_series = self.calc_adx(klines, 14)
+        curr_adx = adx_series[-1] if adx_series else 0.0
+        closes = [float(k["close"]) for k in klines]
+
+        def calc_ema(arr, period):
+            if len(arr) < period:
+                return float(np.mean(arr)) if arr else 0.0
+            alpha = 2 / (period + 1)
+            res = arr[0]
+            for x in arr[1:]:
+                res = alpha * x + (1 - alpha) * res
+            return res
+
+        ema50 = calc_ema(closes, min(50, len(closes)))
+        ema200 = calc_ema(closes, min(200, len(closes)))
+        curr_close = closes[-1]
+
+        if curr_adx >= 26.0:
+            regime = "TRENDING_BULL" if curr_close > ema200 else "TRENDING_BEAR"
+        else:
+            regime = "RANGING"
+
+        return {
+            "regime": regime,
+            "adx": round(curr_adx, 2),
+            "ema50": round(ema50, 4),
+            "ema200": round(ema200, 4),
+            "close": curr_close
+        }

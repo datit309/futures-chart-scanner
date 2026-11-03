@@ -39,9 +39,19 @@ class SignalTracker:
                     pnl_pct REAL DEFAULT 0.0,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
-                    kline_snapshot TEXT
+                    kline_snapshot TEXT,
+                    breakeven_reached INTEGER DEFAULT 0,
+                    tp1_hit INTEGER DEFAULT 0
                 );
             """)
+            try:
+                conn.execute("ALTER TABLE signals ADD COLUMN breakeven_reached INTEGER DEFAULT 0;")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE signals ADD COLUMN tp1_hit INTEGER DEFAULT 0;")
+            except sqlite3.OperationalError:
+                pass
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);")
@@ -116,8 +126,9 @@ class SignalTracker:
         entry = float(sig["entry_price"])
         sl = float(sig["stop_loss"])
         tp1 = float(sig["tp1"])
+        tp2 = float(sig.get("tp2") or 0.0)
         is_long = sig["signal_type"] == "LONG"
-        risk = abs(entry - sl)
+        risk = abs(entry - sl) or (entry * 0.01)
 
         high = float(candle.get("high", candle.get("close", 0.0)))
         low = float(candle.get("low", candle.get("close", 0.0)))
@@ -125,40 +136,86 @@ class SignalTracker:
         ts_raw = candle.get("timestamp", candle.get("time", time.time() * 1000))
         ts_sec = float(ts_raw) / 1000.0 if float(ts_raw) > 1e11 else float(ts_raw)
 
+        has_tp2 = (tp2 > tp1 if is_long else (0 < tp2 < tp1))
+        use_be_runner = has_tp2 and sig.get("pattern") in ("SMC_ORDER_BLOCK_RETEST", "TREND_PULLBACK")
+        tp1_already_hit = bool(sig.get("tp1_hit") or sig.get("breakeven_reached"))
+
         status = "OPEN"
         exit_price = None
         pnl_r = 0.0
         pnl_pct = 0.0
 
         if is_long:
-            hit_tp = high >= tp1
-            hit_sl = low <= sl
-            if hit_tp and not hit_sl:
+            if not tp1_already_hit and high >= tp1:
+                if use_be_runner and high < tp2:
+                    with self._get_connection() as conn:
+                        conn.execute(
+                            "UPDATE signals SET tp1_hit = 1, breakeven_reached = 1, stop_loss = ?, updated_at = ? WHERE id = ?",
+                            (entry, time.time(), signal_id)
+                        )
+                    sig["tp1_hit"] = 1
+                    sig["breakeven_reached"] = 1
+                    sig["stop_loss"] = entry
+                    floating_r = round((close - entry) / risk, 2)
+                    return {**sig, "floating_r": floating_r}
+                else:
+                    status = "WIN"
+                    exit_price = tp2 if (use_be_runner and high >= tp2) else tp1
+                    pnl_r = float(sig["risk_reward"])
+                    pnl_pct = (exit_price - entry) / entry
+            elif tp1_already_hit and use_be_runner and high >= tp2:
                 status = "WIN"
-                exit_price = tp1
+                exit_price = tp2
                 pnl_r = float(sig["risk_reward"])
-                pnl_pct = (tp1 - entry) / entry
-            elif hit_sl:
-                status = "LOSS"
-                exit_price = sl
-                pnl_r = -1.0
-                pnl_pct = (sl - entry) / entry
+                pnl_pct = (tp2 - entry) / entry
+            elif low <= sl:
+                if tp1_already_hit:
+                    status = "WIN"
+                    exit_price = entry
+                    pnl_r = round(0.5 * ((tp1 - entry) / risk), 2)
+                    pnl_pct = round(0.5 * (tp1 - entry) / entry, 4)
+                else:
+                    status = "LOSS"
+                    exit_price = sl
+                    pnl_r = -1.0
+                    pnl_pct = (sl - entry) / entry
             else:
                 floating_r = round((close - entry) / risk, 2) if risk > 0 else 0.0
                 return {**sig, "floating_r": floating_r}
         else:  # SHORT
-            hit_tp = low <= tp1
-            hit_sl = high >= sl
-            if hit_tp and not hit_sl:
+            if not tp1_already_hit and low <= tp1:
+                if use_be_runner and low > tp2:
+                    with self._get_connection() as conn:
+                        conn.execute(
+                            "UPDATE signals SET tp1_hit = 1, breakeven_reached = 1, stop_loss = ?, updated_at = ? WHERE id = ?",
+                            (entry, time.time(), signal_id)
+                        )
+                    sig["tp1_hit"] = 1
+                    sig["breakeven_reached"] = 1
+                    sig["stop_loss"] = entry
+                    floating_r = round((entry - close) / risk, 2)
+                    return {**sig, "floating_r": floating_r}
+                else:
+                    status = "WIN"
+                    exit_price = tp2 if (use_be_runner and low <= tp2) else tp1
+                    pnl_r = float(sig["risk_reward"])
+                    pnl_pct = (entry - exit_price) / entry
+            elif tp1_already_hit and use_be_runner and low <= tp2:
                 status = "WIN"
-                exit_price = tp1
+                exit_price = tp2
                 pnl_r = float(sig["risk_reward"])
-                pnl_pct = (entry - tp1) / entry
-            elif hit_sl:
-                status = "LOSS"
-                exit_price = sl
-                pnl_r = -1.0
-                pnl_pct = (entry - sl) / entry
+                pnl_pct = (entry - tp2) / entry
+            elif high >= sl:
+                if tp1_already_hit:
+                    status = "WIN"
+                    exit_price = entry
+                    pnl_r = round(0.5 * ((entry - tp1) / risk), 2)
+                    pnl_pct = round(0.5 * (entry - tp1) / entry, 4)
+                else:
+                    status = "LOSS"
+                    exit_price = sl
+                    pnl_r = -1.0
+                    pnl_pct = (entry - sl) / entry
             else:
                 floating_r = round((entry - close) / risk, 2) if risk > 0 else 0.0
                 return {**sig, "floating_r": floating_r}

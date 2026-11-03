@@ -353,10 +353,13 @@ def build_structure_payload(
     order_blocks = state.technical_engine.detect_order_blocks(klines, swings)
     regression_channel = state.technical_engine.calculate_regression_channel(klines, window=60)
     forecast_path = state.technical_engine.generate_forecast_path(signal_info, klines) if signal_info else []
+    regime_info = state.technical_engine.detect_market_regime(klines)
 
     return {
         "symbol": symbol,
         "timeframe": timeframe,
+        "regime": regime_info["regime"],
+        "adx": regime_info["adx"],
         "trendlines": tv_trendlines,
         "sr_zones": sr_zones[:4],
         "zone_bands": zone_bands,
@@ -402,6 +405,8 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     return web.json_response({
         "symbol": symbol,
         "timeframe": timeframe,
+        "regime": structure["regime"],
+        "adx": structure["adx"],
         "candles": tv_candles,
         "volumes": tv_volumes,
         "trendlines": structure["trendlines"],
