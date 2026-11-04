@@ -375,7 +375,7 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     symbol = request.query.get("symbol", "BTCUSDT").upper()
     timeframe = request.query.get("timeframe", state.config.timeframe)
-    limit = int(request.query.get("limit", "500"))
+    limit = int(request.query.get("limit", "1000"))
     end_time_raw = request.query.get("endTime")
     end_time = int(end_time_raw) if end_time_raw and end_time_raw.isdigit() else None
 
