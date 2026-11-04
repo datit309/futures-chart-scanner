@@ -25,19 +25,115 @@
 .range-btn{background:#121b23;border:0;padding:5px 8px;font:10px var(--mono);color:var(--muted);cursor:pointer;transition:.15s}
 .range-btn:hover{color:#fff;background:#182835}
 .range-btn.active{background:#1c2d3a;color:var(--cyan);font-weight:700}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(5,9,14,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px}
+.modal-card{max-width:860px;width:100%;max-height:88vh;overflow-y:auto;background:#0d151d;border:1px solid #233644;border-radius:6px;box-shadow:0 24px 60px rgba(0,0,0,0.7);padding:24px}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #1c2b37;padding-bottom:14px;margin-bottom:18px}
+.modal-head h2{margin:0;font-size:15px;font-weight:800;color:#fff;letter-spacing:-.02em}
+.modal-close{background:#182835;border:1px solid #31495c;color:#a0b0bd;padding:6px 12px;border-radius:3px;font:11px var(--mono);cursor:pointer;transition:.15s}
+.modal-close:hover{color:#fff;background:#243a4d}
+.guide-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+@media(max-width:700px){.guide-grid{grid-template-columns:1fr}}
+.guide-box{background:#111b24;border:1px solid #1f2f3c;border-radius:4px;padding:14px}
+.guide-item{margin-bottom:12px;font-size:11.5px;line-height:1.55;color:#bac8d4}
+.guide-item:last-child{margin-bottom:0}
+.guide-item strong{color:#fff;font-weight:700}
+.guide-chip{display:inline-block;padding:2px 6px;border-radius:2px;font:10px var(--mono);font-weight:700;margin-right:6px}
+
 </style>
 </head>
 <body>
 <div class="app">
-<header class="topbar"><div class="brand"><div class="brand-mark">F</div><div>FUTURES DESK<small>MARKET STRUCTURE SCANNER</small></div></div><div class="top-right"><span class="status"><i class="dot"></i><span id="connection">CONNECTING</span></span><span class="clock" id="clock">--:--:-- ICT</span><div class="top-actions"><button class="btn" id="refreshBtn">↻ REFRESH</button><button class="btn primary" id="scanBtn">⌕ SCAN MARKET</button></div></div></header>
+<header class="topbar"><div class="brand"><div class="brand-mark">F</div><div>FUTURES DESK<small>MARKET STRUCTURE SCANNER</small></div></div><div class="top-right"><span class="status"><i class="dot"></i><span id="connection">CONNECTING</span></span><span class="clock" id="clock">--:--:-- ICT</span><div class="top-actions"><button class="btn" id="guideBtn" style="border-color:#3d5668;color:var(--cyan);background:#0d1d28;font-weight:600">📖 HƯỚNG DẪN & CHÚ THÍCH</button><button class="btn" id="refreshBtn">↻ REFRESH</button><button class="btn primary" id="scanBtn">⌕ SCAN MARKET</button></div></div></header>
 <section class="hero"><div><div class="eyebrow">BINANCE USDⓈ-M · PUBLIC MARKET DATA</div><h1>Market structure, without the noise.</h1><p>Quét setup Futures, xem cấu trúc giá và mức rủi ro trên một màn hình.</p></div><div class="meta"><span>FRAME <b id="frameLabel">15m</b></span><span>UNIVERSE <b id="universeLabel">30 PAIRS</b></span><span>LAST SCAN <b id="lastScan">--</b></span></div></section>
 <section class="metrics"><div class="metric"><label>BTC / USDT · PERP</label><strong id="btcPrice">—</strong><span class="sub" id="btcChange">—</span><span class="sub" id="btcVol">24H VOL —</span></div><div class="metric"><label>Pairs monitored</label><strong id="pairCount">—</strong><span class="sub">USDT-M contracts</span></div><div class="metric"><label>Signal Win Rate</label><strong id="winRateVal" style="color:var(--green)">--%</strong><span class="sub" id="winRateDetail">0W / 0L · Net 0.0R</span></div><div class="metric"><label>Scanner status</label><strong id="scanStatus" style="font-size:14px;color:var(--green)">READY</strong><span class="sub" id="scanEvery">5m interval</span></div></section>
 <main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
 <aside class="side"><section class="panel"><div class="side-head"><h2>Signal feed</h2><div class="feed-tabs" id="feedTabs"><button class="feed-tab active" data-tab="ALL">ALL</button><button class="feed-tab" data-tab="ACTIVE">OPEN</button><button class="feed-tab" data-tab="HISTORY">HISTORY</button></div></div><div class="signal-list" id="signalList"><div class="signal-empty">Chưa có setup đạt tiêu chí. Chọn <b>SCAN MARKET</b> để quét dữ liệu Futures mới nhất.</div></div><div class="footnote">Tín hiệu được theo dõi tự động theo Take Profit và Stop Loss.</div></section><section class="panel watchlist"><div class="side-head"><h2>High-volume contracts</h2><span class="count">24H QUOTE VOL</span></div><div class="watch-list" id="watchList"><div class="signal-empty">Đang tải danh sách hợp đồng…</div></div><div class="footnote">Binance USDⓈ-M · chỉ gồm hợp đồng USDT perpetual.</div></section></aside></main>
 <div class="disclaimer">RỦI RO CAO · Futures có thể khiến bạn mất toàn bộ vốn. Tín hiệu và mức Entry/SL/TP chỉ mang tính nghiên cứu; không đảm bảo lợi nhuận. Luôn tự xác minh trước khi giao dịch.</div>
+
+<div class="modal-overlay hidden" id="guideModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2>📚 BẢNG CHÚ THÍCH DÀNH CHO NGƯỜI MỚI (CHƯA BIẾT TRADE)</h2>
+        <div style="color:var(--muted);font-size:11px;margin-top:3px">Hiểu ngay các đường vẽ, ký hiệu trên biểu đồ và cách vào lệnh an toàn nhất</div>
+      </div>
+      <button class="modal-close" id="closeGuideBtn">✕ ĐÓNG</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:11px;color:var(--cyan);font-weight:700;margin-bottom:8px;letter-spacing:.06em">PHẦN 1: CÁC ĐƯỜNG VẼ TRÊN BIỂU ĐỒ (VẼ GÌ VẬY?)</div>
+      <div class="guide-grid">
+        <div class="guide-box">
+          <div class="guide-item">
+            <span class="guide-chip" style="background:#1d2935;color:#a7b2bd;border:1px dashed #788795">BOS</span>
+            <strong>Break of Structure (Phá vỡ cản tiếp diễn)</strong><br>
+            Đường nét đứt màu xám. Giá vừa vượt qua đỉnh cũ hoặc đâm thủng đáy cũ. Thể hiện phe mua/bán đang áp đảo mạnh, xu hướng còn tiếp diễn.
+          </div>
+          <div class="guide-item">
+            <span class="guide-chip" style="background:#261822;color:#ff5e6e;border:1px dashed #ff5e6e">CHoCH</span>
+            <strong>Change of Character (Đảo chiều xu hướng)</strong><br>
+            Tín hiệu "quay xe" của thị trường khi giá bất ngờ gãy đỉnh/đáy quan trọng. Cảnh báo xu hướng cũ đã kết thúc, chuẩn bị đảo chiều.
+          </div>
+        </div>
+        <div class="guide-box">
+          <div class="guide-item">
+            <span class="guide-chip" style="background:rgba(0,214,154,.15);color:#00d69a;border:1px solid #00d69a">+OB [Demand]</span>
+            <strong>Vùng Gom Hàng của Cá Voi (Vùng Cầu)</strong><br>
+            Hộp chữ nhật xanh ngọc. Nơi các quỹ lớn đặt lệnh mua khối lượng khổng lồ. Khi giá rơi về chạm vùng này thường sẽ bật tăng mạnh lên.
+          </div>
+          <div class="guide-item">
+            <span class="guide-chip" style="background:rgba(255,94,110,.15);color:#ff5e6e;border:1px solid #ff5e6e">-OB [Supply]</span>
+            <strong>Vùng Xả Hàng của Cá Voi (Vùng Cung)</strong><br>
+            Hộp chữ nhật đỏ hồng. Nơi cá mập xả hàng bán tháo chốt lời. Khi giá tăng lên chạm vùng này thường bị ép giảm mạnh xuống.
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:var(--cyan);font-weight:700;margin-bottom:8px;letter-spacing:.06em">PHẦN 2: HỘP VỊ THẾ R:R VÀ CÁCH VÀO LỆNH</div>
+      <div class="guide-grid">
+        <div class="guide-box">
+          <div class="guide-item">
+            <strong>🎯 Hộp Vị Thế Xanh / Đỏ trên nến:</strong><br>
+            • <b>Đường ở giữa:</b> Mức giá vào lệnh (Entry).<br>
+            • <b>Hộp màu xanh lá (trên):</b> Vùng Chốt lời (Take Profit). Chạm đỉnh hộp là chốt lãi.<br>
+            • <b>Hộp màu đỏ (dưới):</b> Vùng Cắt lỗ (Stop Loss). Chạm đáy hộp là cắt lỗ tự động.
+          </div>
+          <div class="guide-item">
+            <strong>⚖️ Tỷ lệ R:R (Risk / Reward):</strong><br>
+            Ví dụ <b>1:2.5</b> nghĩa là: Nếu sai fen chỉ mất 1 đồng (dính SL), nhưng nếu đúng fen ăn được 2.5 đồng (trúng TP). Nhờ tỷ lệ này, chỉ cần thắng 40% số lệnh là đã có lãi lớn!
+          </div>
+        </div>
+        <div class="guide-box">
+          <div class="guide-item">
+            <strong>🟢 Lệnh LONG (Mua lên):</strong><br>
+            Đặt lệnh MUA khi dự đoán giá sẽ tăng. Giá càng tăng cao qua điểm Entry fen càng có lãi.
+          </div>
+          <div class="guide-item">
+            <strong>🔴 Lệnh SHORT (Bán khống):</strong><br>
+            Đặt lệnh BÁN khi dự đoán giá sẽ giảm. Giá càng rơi sâu xuống dưới điểm Entry fen càng có lãi.
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:var(--amber);font-weight:700;margin-bottom:8px;letter-spacing:.06em">PHẦN 3: 3 NGUYÊN TẮC SỐNG CÒN (KHÔNG BAO GIỜ CHÁY TÀI KHOẢN)</div>
+      <div class="guide-box" style="border-left:3px solid var(--amber)">
+        <div class="guide-item">
+          <strong>1. Luôn cài Stop Loss (SL) ngay khi vào lệnh:</strong> Tuyệt đối không bao giờ tháo SL để "gồng lỗ". Cắt lỗ sớm chỉ mất 1-2% tài khoản, gồng lỗ sẽ làm cháy sạch tiền.
+        </div>
+        <div class="guide-item">
+          <strong>2. Cơ chế Kéo Hòa Vốn (Breakeven):</strong> Khi giá đã chạm mục tiêu đầu tiên (TP1), bot khuyến nghị kéo SL về ngay giá vào lệnh (Entry). Lúc này nếu giá bất ngờ đảo chiều, fen không mất một đồng nào!
+        </div>
+        <div class="guide-item">
+          <strong>3. Đi lệnh tối đa 1% - 2% tài khoản:</strong> Chia nhỏ số vốn. Ví dụ tài khoản có 1,000$, mỗi lệnh chỉ chịu rủi ro mất tối đa 10$ - 20$ nếu chạm SL.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape} from '/static/chart_stream.js';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation} from '/static/chart_stream.js';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
   const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',widget:null,chartReady:false,orderLines:[],signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
@@ -204,7 +300,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     });
   }
 
-  function renderSignalList(){const box=$('#signalList');const filtered=filterSignals(state.signals,state.feedTab);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div><div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
+  function renderSignalList(){const box=$('#signalList');const filtered=filterSignals(state.signals,state.feedTab);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
 
   async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
 
@@ -251,6 +347,9 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
   });
   $$('.feed-tab').forEach(b=>b.onclick=()=>{$$('.feed-tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.feedTab=b.dataset.tab;renderSignalList()});
   $$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{if(state.chartPayload)renderTradingViewDrawings(state.chartPayload);}));
+    $('#guideBtn').onclick=()=>$('#guideModal').classList.remove('hidden');
+  $('#closeGuideBtn').onclick=()=>$('#guideModal').classList.add('hidden');
+  $('#guideModal').onclick=(e)=>{if(e.target===$('#guideModal'))$('#guideModal').classList.add('hidden');};
   $('#scanBtn').onclick=scan;$('#refreshBtn').onclick=async()=>{await loadSymbols();await loadStatus();await loadSignals();await loadChart();toast('Market data refreshed')};
 
   initTradingView();

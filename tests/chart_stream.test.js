@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -253,4 +253,20 @@ test('formatPositionShape creates long_position and short_position TradingView t
   assert.equal(shortShape.options.shape, 'short_position');
   assert.equal(shortShape.options.overrides.stopLevel.price, 81000);
   assert.equal(shortShape.options.overrides.profitLevel.price, 77500);
+});
+
+test('formatSignalPlainExplanation translates trading setup into simple Vietnamese', () => {
+  const longOB = { signal_type: 'LONG', pattern: 'SMC_ORDER_BLOCK_RETEST' };
+  const exp1 = formatSignalPlainExplanation(longOB);
+  assert.ok(exp1.includes('Đánh LÊN (LONG)'));
+  assert.ok(exp1.includes('gom hàng'));
+
+  const shortMR = { signal_type: 'SHORT', pattern: 'MEAN_REVERSION_TRAP' };
+  const exp2 = formatSignalPlainExplanation(shortMR);
+  assert.ok(exp2.includes('Đánh XUỐNG (SHORT)'));
+  assert.ok(exp2.includes('quá bán') || exp2.includes('quá mua') || exp2.includes('trung bình'));
+
+  const breakout = { signal_type: 'LONG', pattern: 'TRENDLINE_BREAKOUT' };
+  const exp3 = formatSignalPlainExplanation(breakout);
+  assert.ok(exp3.includes('Phá vỡ cản') || exp3.includes('Breakout'));
 });

@@ -296,4 +296,37 @@ export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription =
   };
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape};
+export function formatSignalPlainExplanation(signal) {
+  if (!signal) return '';
+  const type = (signal.signal_type || 'LONG').toUpperCase();
+  const pattern = (signal.pattern || '').toUpperCase();
+  const isLong = type === 'LONG';
+
+  if (pattern.includes('ORDER_BLOCK') || pattern.includes('SMC')) {
+    if (isLong) {
+      return '🟢 Đánh LÊN (LONG) — Giá chạm vùng cá voi gom hàng (+OB), kỳ vọng bật tăng.';
+    } else {
+      return '🔴 Đánh XUỐNG (SHORT) — Giá chạm vùng cá voi xả hàng (-OB), kỳ vọng rơi giá.';
+    }
+  }
+
+  if (pattern.includes('MEAN_REVERSION')) {
+    if (isLong) {
+      return '🟢 Đánh LÊN (LONG) — Phe bán cạn lực chạm cản dưới quá bán, kỳ vọng giật ngược về giá trung bình.';
+    } else {
+      return '🔴 Đánh XUỐNG (SHORT) — Phe mua hụt hơi chạm cản trên quá mua, kỳ vọng ép giảm về giá trung bình.';
+    }
+  }
+
+  if (pattern.includes('BREAKOUT') || pattern.includes('TRENDLINE')) {
+    if (isLong) {
+      return '🟢 Phá vỡ cản (Breakout) — Giá bứt phá mạnh qua cản trên, đánh thuận sóng tăng.';
+    } else {
+      return '🔴 Gãy hỗ trợ (Breakdown) — Giá sập thủng cản dưới, đánh thuận sóng giảm.';
+    }
+  }
+
+  return isLong ? '🟢 Kèo Mua (LONG) theo cấu trúc thị trường' : '🔴 Kèo Bán (SHORT) theo cấu trúc thị trường';
+}
+
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation};
