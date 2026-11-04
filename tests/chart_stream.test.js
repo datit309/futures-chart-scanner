@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -224,4 +224,33 @@ test('createTradingViewDatafeed passes endTime on historical pagination', async 
   );
   assert.equal(requestedEndTime, 1700500 * 1000);
   assert.equal(barsReceived.length, 1);
+});
+
+test('formatStructureBreakShape formats BOS and CHOCH dashed line descriptors', () => {
+  const bos = { type: 'BOS', price: 80000, time_start: 1700000, time_end: 1700900, is_bullish: true };
+  const shape = formatStructureBreakShape(bos);
+  assert.equal(shape.options.shape, 'trend_line');
+  assert.equal(shape.options.text, 'BOS');
+  assert.equal(shape.options.overrides.linestyle, 2);
+  assert.equal(shape.points[0].price, 80000);
+
+  const choch = { type: 'CHOCH', price: 79000, time_start: 1700000, time_end: 1700900, is_bullish: false };
+  const shape2 = formatStructureBreakShape(choch);
+  assert.equal(shape2.options.text, 'CHoCH');
+  assert.equal(shape2.options.overrides.linecolor, '#ff5e6e');
+});
+
+test('formatPositionShape creates long_position and short_position TradingView tool shapes', () => {
+  const longSig = { signal_type: 'LONG', entry_price: 80000, stop_loss: 79000, tp2: 82500 };
+  const lastCandle = { time: 1700000 };
+  const longShape = formatPositionShape(longSig, lastCandle);
+  assert.equal(longShape.options.shape, 'long_position');
+  assert.equal(longShape.options.overrides.stopLevel.price, 79000);
+  assert.equal(longShape.options.overrides.profitLevel.price, 82500);
+
+  const shortSig = { signal_type: 'SHORT', entry_price: 80000, stop_loss: 81000, tp2: 77500 };
+  const shortShape = formatPositionShape(shortSig, lastCandle);
+  assert.equal(shortShape.options.shape, 'short_position');
+  assert.equal(shortShape.options.overrides.stopLevel.price, 81000);
+  assert.equal(shortShape.options.overrides.profitLevel.price, 77500);
 });

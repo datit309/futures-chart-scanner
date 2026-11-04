@@ -32,12 +32,12 @@
 <header class="topbar"><div class="brand"><div class="brand-mark">F</div><div>FUTURES DESK<small>MARKET STRUCTURE SCANNER</small></div></div><div class="top-right"><span class="status"><i class="dot"></i><span id="connection">CONNECTING</span></span><span class="clock" id="clock">--:--:-- ICT</span><div class="top-actions"><button class="btn" id="refreshBtn">↻ REFRESH</button><button class="btn primary" id="scanBtn">⌕ SCAN MARKET</button></div></div></header>
 <section class="hero"><div><div class="eyebrow">BINANCE USDⓈ-M · PUBLIC MARKET DATA</div><h1>Market structure, without the noise.</h1><p>Quét setup Futures, xem cấu trúc giá và mức rủi ro trên một màn hình.</p></div><div class="meta"><span>FRAME <b id="frameLabel">15m</b></span><span>UNIVERSE <b id="universeLabel">30 PAIRS</b></span><span>LAST SCAN <b id="lastScan">--</b></span></div></section>
 <section class="metrics"><div class="metric"><label>BTC / USDT · PERP</label><strong id="btcPrice">—</strong><span class="sub" id="btcChange">—</span><span class="sub" id="btcVol">24H VOL —</span></div><div class="metric"><label>Pairs monitored</label><strong id="pairCount">—</strong><span class="sub">USDT-M contracts</span></div><div class="metric"><label>Signal Win Rate</label><strong id="winRateVal" style="color:var(--green)">--%</strong><span class="sub" id="winRateDetail">0W / 0L · Net 0.0R</span></div><div class="metric"><label>Scanner status</label><strong id="scanStatus" style="font-size:14px;color:var(--green)">READY</strong><span class="sub" id="scanEvery">5m interval</span></div></section>
-<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="ob" checked> Order Blocks (OB)</label><label><input type="checkbox" data-overlay="trade" checked> Trade levels</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#f5b84b"></i> TRENDLINE</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.45);border:1px solid #00d69a"></i> OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.45);border:1px solid #ff5e6e"></i> OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> ENTRY</span><span class="legend-item"><i class="legend-swatch sl"></i> STOP</span><span class="legend-item"><i class="legend-swatch tp"></i> TARGET</span></div></section>
+<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
 <aside class="side"><section class="panel"><div class="side-head"><h2>Signal feed</h2><div class="feed-tabs" id="feedTabs"><button class="feed-tab active" data-tab="ALL">ALL</button><button class="feed-tab" data-tab="ACTIVE">OPEN</button><button class="feed-tab" data-tab="HISTORY">HISTORY</button></div></div><div class="signal-list" id="signalList"><div class="signal-empty">Chưa có setup đạt tiêu chí. Chọn <b>SCAN MARKET</b> để quét dữ liệu Futures mới nhất.</div></div><div class="footnote">Tín hiệu được theo dõi tự động theo Take Profit và Stop Loss.</div></section><section class="panel watchlist"><div class="side-head"><h2>High-volume contracts</h2><span class="count">24H QUOTE VOL</span></div><div class="watch-list" id="watchList"><div class="signal-empty">Đang tải danh sách hợp đồng…</div></div><div class="footnote">Binance USDⓈ-M · chỉ gồm hợp đồng USDT perpetual.</div></section></aside></main>
 <div class="disclaimer">RỦI RO CAO · Futures có thể khiến bạn mất toàn bộ vốn. Tín hiệu và mức Entry/SL/TP chỉ mang tính nghiên cứu; không đảm bảo lợi nhuận. Luôn tự xác minh trước khi giao dịch.</div>
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed} from '/static/chart_stream.js';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape} from '/static/chart_stream.js';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
   const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',widget:null,chartReady:false,orderLines:[],signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
@@ -73,13 +73,15 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       clearTradingViewDrawings();
       const o=overlayState();
 
-      if(o.trendlines&&structure.trendlines?.length){
-        structure.trendlines.forEach(tl=>{
-          const s=formatTrendlineShape(tl);
+      // 1. Structure Break Shifts (BOS & CHoCH)
+      if(o.structure&&structure.structure_breaks?.length){
+        structure.structure_breaks.forEach(sb=>{
+          const s=formatStructureBreakShape(sb);
           c.createMultipointShape(s.points,s.options);
         });
       }
 
+      // 2. Institutional Fresh Order Blocks (Demand & Supply)
       if(o.ob&&structure.order_blocks?.length){
         const lastTime=structure.candles?.at(-1)?.time||Math.floor(Date.now()/1000);
         structure.order_blocks.forEach(ob=>{
@@ -88,62 +90,21 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         });
       }
 
+      // 3. Trendlines
+      if(o.trendlines&&structure.trendlines?.length){
+        structure.trendlines.forEach(tl=>{
+          const s=formatTrendlineShape(tl);
+          c.createMultipointShape(s.points,s.options);
+        });
+      }
+
+      // 4. Native TradingView Long / Short Position Tool (Green/Red R:R Box)
       const sig=structure.signal;
-      if(o.trade&&sig&&sig.entry_price){
-        const entry=Number(sig.entry_price);
-        const sl=Number(sig.stop_loss);
-        const tp1=Number(sig.tp1||sig.take_profit);
-        const isShort=sig.signal_type==='SHORT';
-
-        if(entry>0){
-          const entryLine=c.createOrderLine()
-            .setText('ENTRY '+fmt(entry))
-            .setPrice(entry)
-            .setLineColor('#65cfff')
-            .setBodyTextColor('#ffffff')
-            .setBodyBackgroundColor('#1e53e5');
-          state.orderLines.push(entryLine);
-        }
-        if(sl>0){
-          const diff=((sl-entry)/entry*100).toFixed(2);
-          const slLine=c.createOrderLine()
-            .setText(`SL ${fmt(sl)} (${diff>0?'+':''}${diff}%)`)
-            .setPrice(sl)
-            .setLineColor('#ff5e6e')
-            .setBodyTextColor('#ffffff')
-            .setBodyBackgroundColor('#ff5e6e');
-          state.orderLines.push(slLine);
-        }
-        if(tp1>0){
-          const diff=((tp1-entry)/entry*100).toFixed(2);
-          const tpLine=c.createOrderLine()
-            .setText(`TP1 ${fmt(tp1)} (${diff>0?'+':''}${diff}%)`)
-            .setPrice(tp1)
-            .setLineColor('#00d69a')
-            .setBodyTextColor('#ffffff')
-            .setBodyBackgroundColor('#00d69a');
-          state.orderLines.push(tpLine);
-        }
-        const tp2=Number(sig.tp2);
-        if(tp2>0&&tp2!==tp1){
-          const diff=((tp2-entry)/entry*100).toFixed(2);
-          const tp2Line=c.createOrderLine()
-            .setText(`TP2 ${fmt(tp2)} (${diff>0?'+':''}${diff}%)`)
-            .setPrice(tp2)
-            .setLineColor('#00d69a')
-            .setLineStyle(1)
-            .setBodyTextColor('#ffffff')
-            .setBodyBackgroundColor('#00a375');
-          state.orderLines.push(tp2Line);
-        }
-
-        const lastCandle=structure.candles?.at(-1);
-        if(lastCandle){
-          c.createShape({time:lastCandle.time,price:entry},{
-            shape:isShort?'arrow_down':'arrow_up',
-            text:`${sig.signal_type} · ${sig.description||''}`,
-            overrides:{color:isShort?'#ff5e6e':'#00d69a'}
-          });
+      const lastCandle=structure.candles?.at(-1);
+      if(o.position&&sig&&sig.entry_price&&lastCandle){
+        const posShape=formatPositionShape(sig,lastCandle);
+        if(posShape){
+          c.createMultipointShape(posShape.points,posShape.options);
         }
       }
     }catch(err){console.warn('renderTradingViewDrawings error:',err);}

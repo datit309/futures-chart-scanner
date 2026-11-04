@@ -8,7 +8,7 @@ export function clientReconnectDelay(attempt) {
 
 export function structureToOverlays(payload) {
   if (!payload || typeof payload !== "object") {
-    return {trendlines: [], zone_bands: [], fvgs: [], order_blocks: [], regression_channel: {}, forecast_path: [], signal: null};
+    return {trendlines: [], zone_bands: [], fvgs: [], order_blocks: [], regression_channel: {}, forecast_path: [], structure_breaks: [], signal: null};
   }
   return {
     trendlines: Array.isArray(payload.trendlines) ? payload.trendlines : [],
@@ -17,6 +17,7 @@ export function structureToOverlays(payload) {
     order_blocks: Array.isArray(payload.order_blocks) ? payload.order_blocks : [],
     regression_channel: payload.regression_channel || {},
     forecast_path: Array.isArray(payload.forecast_path) ? payload.forecast_path : [],
+    structure_breaks: Array.isArray(payload.structure_breaks) ? payload.structure_breaks : [],
     signal: payload.signal || null,
   };
 }
@@ -150,6 +151,7 @@ export function formatOrderBlockShape(ob, lastTime) {
     ],
     options: {
       shape: 'rectangle',
+      text: isBull ? '+OB [Demand]' : '-OB [Supply]',
       lock: true,
       disableSelection: false,
       overrides: {
@@ -157,6 +159,64 @@ export function formatOrderBlockShape(ob, lastTime) {
         backgroundColor: isBull ? 'rgba(0, 214, 154, 0.20)' : 'rgba(255, 94, 110, 0.20)',
         fillBackground: true,
         linewidth: 1,
+        textcolor: isBull ? '#00d69a' : '#ff5e6e',
+        fontsize: 10,
+        showLabel: true,
+      }
+    }
+  };
+}
+
+export function formatStructureBreakShape(item) {
+  const isBOS = item.type === 'BOS';
+  const color = item.is_bullish ? '#00d69a' : '#ff5e6e';
+  const textLabel = isBOS ? 'BOS' : 'CHoCH';
+  return {
+    points: [
+      { time: item.time_start, price: item.price },
+      { time: item.time_end + 3600 * 2, price: item.price }
+    ],
+    options: {
+      shape: 'trend_line',
+      text: textLabel,
+      lock: true,
+      disableSelection: false,
+      overrides: {
+        linecolor: isBOS ? '#788795' : color,
+        linewidth: 1,
+        linestyle: 2, // dashed
+        textcolor: isBOS ? '#a7b2bd' : color,
+        fontsize: 10,
+        showLabel: true,
+      }
+    }
+  };
+}
+
+export function formatPositionShape(signal, lastCandle) {
+  if (!signal || !signal.entry_price || !lastCandle) return null;
+  const entry = Number(signal.entry_price);
+  const sl = Number(signal.stop_loss);
+  const tp = Number(signal.tp2 || signal.take_profit || signal.tp1);
+  const isShort = signal.signal_type === 'SHORT';
+  const shape = isShort ? 'short_position' : 'long_position';
+  const timeStep = 900;
+  return {
+    points: [
+      { time: lastCandle.time, price: entry },
+      { time: lastCandle.time + timeStep * 8, price: entry }
+    ],
+    options: {
+      shape,
+      lock: true,
+      disableSelection: false,
+      overrides: {
+        stopLevel: { price: sl },
+        profitLevel: { price: tp },
+        stopBackground: 'rgba(255, 94, 110, 0.22)',
+        profitBackground: 'rgba(0, 214, 154, 0.22)',
+        linecolor: '#65cfff',
+        showPriceLabels: true,
       }
     }
   };
@@ -236,4 +296,4 @@ export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription =
   };
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape};

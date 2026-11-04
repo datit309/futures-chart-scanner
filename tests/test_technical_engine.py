@@ -1,9 +1,9 @@
 from technical_engine import PatternType, SwingPoint, TechnicalEngine, Trendline
 
 
-def create_synthetic_klines(prices: list[tuple[float, float, float, float]]):
+def create_synthetic_klines(prices: list[tuple[float, float, float, float]], start_time: int = 1700000000000):
     """Build kline dictionaries from (open, high, low, close) tuples."""
-    base_ts = 1700000000000
+    base_ts = start_time
     return [
         {
             "timestamp": base_ts + idx * 900000,
@@ -324,3 +324,52 @@ def test_regime_adaptive_signals_generation():
     assert sig.take_profit > sig.entry_price
     assert sig.stop_loss < sig.entry_price
     assert sig.tp1 > 0
+
+
+def test_unmitigated_order_blocks_and_bos_choch_shifts():
+    engine = TechnicalEngine()
+    # Construct market structure:
+    # Bar 0-4: Swing High at Bar 2 (high=105)
+    # Bar 5-8: Down candle at Bar 6 (open=100, close=98, low=97), then Bar 8 breaks above 105 (BOS Bullish!)
+    # Bar 9-12: Swing High at Bar 10 (high=115), Swing Low at Bar 12 (low=106)
+    # Bar 13-16: Bar 14 breaks 115 (BOS Bullish!), Bar 16 breaks below 106 (CHoCH Bearish reversal!)
+    prices = [
+        (100, 102, 99, 101),   # 0
+        (101, 103, 100, 102),  # 1
+        (102, 105, 101, 104),  # 2 - Swing High (105)
+        (103, 103.5, 99, 100), # 3
+        (100, 101, 99, 100),   # 4
+        (100, 101, 98, 99),    # 5
+        (99, 100, 97, 98),     # 6 - OB candle (low=97, top=99)
+        (98, 104, 98, 103),    # 7
+        (103, 108, 102, 107),  # 8 - Breaks 105 (BOS Bullish!)
+        (107, 112, 106, 111),  # 9
+        (111, 115, 110, 114),  # 10 - Swing High (115)
+        (114, 114, 107, 108),  # 11
+        (108, 109, 106, 107),  # 12 - Swing Low (106)
+        (107, 112, 106, 111),  # 13
+        (111, 118, 110, 117),  # 14 - Breaks 115 (BOS Bullish!)
+        (116, 116, 105, 106),  # 15
+        (106, 106, 101, 102),  # 16 - Breaks below 106 (CHoCH Bearish!)
+    ]
+    klines = create_synthetic_klines(prices)
+    swings = engine.find_swing_points(klines, window=2)
+
+    # 1. Test BOS & CHoCH structure shifts
+    shifts = engine.detect_market_structure_shifts(klines, swings)
+    assert len(shifts) >= 2
+    types = [s["type"] for s in shifts]
+    assert "BOS" in types
+    assert "CHOCH" in types
+
+    # 2. Test Unmitigated Order Blocks
+    # Bar 6 OB has top=99, bottom=97.
+    # At Bar 16, price dropped to 101, so Bar 6 OB is still UNMITIGATED!
+    unmitigated_obs = engine.detect_order_blocks(klines, swings, unmitigated_only=True)
+    assert any(ob["index"] == 6 and not ob.get("mitigated", False) for ob in unmitigated_obs)
+
+    # Now add Bar 17 where price drops to 95 (penetrates through 97)
+    klines_breached = klines + create_synthetic_klines([(102, 102, 95, 96)], start_time=klines[-1]["timestamp"] + 900000)
+    swings_breached = engine.find_swing_points(klines_breached, window=2)
+    obs_after_breach = engine.detect_order_blocks(klines_breached, swings_breached, unmitigated_only=True)
+    assert not any(ob["index"] == 6 for ob in obs_after_breach), "Breached Order Block must be filtered out when unmitigated_only=True"

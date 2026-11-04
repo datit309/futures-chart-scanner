@@ -542,11 +542,72 @@ class TechnicalEngine:
 
         return signals
 
-    def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint]) -> List[Dict[str, Any]]:
+    def detect_market_structure_shifts(self, klines: List[Dict[str, Any]], swings: List[SwingPoint]) -> List[Dict[str, Any]]:
+        """
+        Detect Institutional Break of Structure (BOS) and Change of Character (CHoCH).
+        - BOS: Trend continuation (breaking swing high in uptrend or swing low in downtrend).
+        - CHoCH: Trend reversal (first break of swing low in uptrend or swing high in downtrend).
+        """
+        n = len(klines)
+        if n < 6 or not swings:
+            return []
+
+        sorted_swings = sorted(swings, key=lambda s: s.index)
+        shifts = []
+        last_trend = None  # "BULL" or "BEAR"
+
+        for s in sorted_swings:
+            # Look for the first candle after this swing that breaks through its price level
+            for i in range(s.index + 1, n):
+                c = float(klines[i]["close"])
+                prev_c = float(klines[i - 1]["close"])
+
+                if s.is_high:
+                    if prev_c <= s.price and c > s.price:
+                        # Broken upward
+                        shift_type = "BOS" if last_trend == "BULL" else "CHOCH"
+                        last_trend = "BULL"
+                        t_start = int(klines[s.index]["timestamp"] / 1000)
+                        t_end = int(klines[i]["timestamp"] / 1000)
+                        shifts.append({
+                            "type": shift_type,
+                            "price": round(s.price, 4),
+                            "time_start": t_start,
+                            "time_end": t_end,
+                            "label": f"{shift_type} Bullish" if shift_type == "BOS" else "CHoCH Bullish",
+                            "is_bullish": True,
+                            "swing_index": s.index,
+                            "break_index": i
+                        })
+                        break
+                else:
+                    if prev_c >= s.price and c < s.price:
+                        # Broken downward
+                        shift_type = "BOS" if last_trend == "BEAR" else "CHOCH"
+                        last_trend = "BEAR"
+                        t_start = int(klines[s.index]["timestamp"] / 1000)
+                        t_end = int(klines[i]["timestamp"] / 1000)
+                        shifts.append({
+                            "type": shift_type,
+                            "price": round(s.price, 4),
+                            "time_start": t_start,
+                            "time_end": t_end,
+                            "label": f"{shift_type} Bearish" if shift_type == "BOS" else "CHoCH Bearish",
+                            "is_bullish": False,
+                            "swing_index": s.index,
+                            "break_index": i
+                        })
+                        break
+
+        # Return the most recent 6 structural shifts
+        return shifts[-6:]
+
+    def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint], unmitigated_only: bool = True) -> List[Dict[str, Any]]:
         """
         Detect Institutional Order Blocks (SMC):
         - Bullish OB: The last down candle (close < open) prior to an aggressive upward break of structure.
         - Bearish OB: The last up candle (close > open) prior to an aggressive downward break of structure.
+        - Unmitigated filter: Removes blocks that have already been completely penetrated or tested.
         """
         n = len(klines)
         if n < 8 or not swings:
@@ -570,14 +631,31 @@ class TechnicalEngine:
                     ]
                     if candidates:
                         ob_idx, ob_candle = min(candidates, key=lambda x: x[1]["low"])
-                        order_blocks.append({
-                            "type": "BULLISH_OB",
-                            "index": ob_idx,
-                            "top": max(ob_candle["open"], ob_candle["close"]),
-                            "bottom": ob_candle["low"],
-                            "timestamp": ob_candle["timestamp"],
-                            "label": "OB Demand",
-                        })
+                        ob_top = max(ob_candle["open"], ob_candle["close"])
+                        ob_bottom = ob_candle["low"]
+
+                        # Check mitigation by subsequent candles
+                        mitigated = False
+                        breached = False
+                        for later_i in range(idx + 1, n):
+                            later_low = float(klines[later_i]["low"])
+                            if later_low < ob_bottom:
+                                breached = True
+                                break
+                            elif later_low <= ob_top:
+                                mitigated = True
+
+                        if not (unmitigated_only and breached):
+                            order_blocks.append({
+                                "type": "BULLISH_OB",
+                                "index": ob_idx,
+                                "top": round(ob_top, 4),
+                                "bottom": round(ob_bottom, 4),
+                                "timestamp": ob_candle["timestamp"],
+                                "label": "OB Demand",
+                                "mitigated": mitigated or breached,
+                                "breached": breached
+                            })
 
         # Bearish OBs
         for idx in range(3, n):
@@ -593,14 +671,30 @@ class TechnicalEngine:
                     ]
                     if candidates:
                         ob_idx, ob_candle = max(candidates, key=lambda x: x[1]["high"])
-                        order_blocks.append({
-                            "type": "BEARISH_OB",
-                            "index": ob_idx,
-                            "top": ob_candle["high"],
-                            "bottom": min(ob_candle["open"], ob_candle["close"]),
-                            "timestamp": ob_candle["timestamp"],
-                            "label": "OB Supply",
-                        })
+                        ob_top = ob_candle["high"]
+                        ob_bottom = min(ob_candle["open"], ob_candle["close"])
+
+                        mitigated = False
+                        breached = False
+                        for later_i in range(idx + 1, n):
+                            later_high = float(klines[later_i]["high"])
+                            if later_high > ob_top:
+                                breached = True
+                                break
+                            elif later_high >= ob_bottom:
+                                mitigated = True
+
+                        if not (unmitigated_only and breached):
+                            order_blocks.append({
+                                "type": "BEARISH_OB",
+                                "index": ob_idx,
+                                "top": round(ob_top, 4),
+                                "bottom": round(ob_bottom, 4),
+                                "timestamp": ob_candle["timestamp"],
+                                "label": "OB Supply",
+                                "mitigated": mitigated or breached,
+                                "breached": breached
+                            })
 
         seen = set()
         unique_obs = []
@@ -608,7 +702,8 @@ class TechnicalEngine:
             key = (ob["type"], ob["index"])
             if key not in seen:
                 seen.add(key)
-                unique_obs.append(ob)
+                if not unmitigated_only or not ob["breached"]:
+                    unique_obs.append(ob)
         unique_obs.reverse()
         return unique_obs[-4:]
 
