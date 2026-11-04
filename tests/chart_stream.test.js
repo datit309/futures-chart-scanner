@@ -205,3 +205,23 @@ test('createTradingViewDatafeed resolves symbol with correct pricescale', async 
   await new Promise(r => setTimeout(r, 10));
   assert.equal(pepeResolved.pricescale, 100000);
 });
+
+test('createTradingViewDatafeed passes endTime on historical pagination', async () => {
+  let requestedEndTime = null;
+  const datafeed = createTradingViewDatafeed(async (sym, tf, endTime) => {
+    requestedEndTime = endTime;
+    return {
+      candles: [{ time: 1700000, open: 10, high: 11, low: 9, close: 10.5, volume: 50 }]
+    };
+  });
+  let barsReceived = null;
+  await datafeed.getBars(
+    { name: 'BTCUSDT' },
+    '15',
+    { firstDataRequest: false, to: 1700500 },
+    (bars) => { barsReceived = bars; },
+    () => {}
+  );
+  assert.equal(requestedEndTime, 1700500 * 1000);
+  assert.equal(barsReceived.length, 1);
+});

@@ -375,9 +375,14 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     symbol = request.query.get("symbol", "BTCUSDT").upper()
     timeframe = request.query.get("timeframe", state.config.timeframe)
-    limit = int(request.query.get("limit", "100"))
+    limit = int(request.query.get("limit", "500"))
+    end_time_raw = request.query.get("endTime")
+    end_time = int(end_time_raw) if end_time_raw and end_time_raw.isdigit() else None
 
-    klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit)
+    if end_time is not None:
+        klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit, endTime=end_time)
+    else:
+        klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit)
     if not klines:
         return web.json_response({"error": f"Không lấy được nến cho {symbol}"}, status=404)
 

@@ -414,3 +414,16 @@ async def test_structure_payload_includes_smc_and_forecast(aiohttp_client):
     reg = payload["regression_channel"]
     assert "upper_series" in reg and "lower_series" in reg
     assert len(reg["upper_series"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_api_chart_supports_pagination_with_endtime(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+    state.client.get_klines = AsyncMock(return_value=[
+        {"timestamp": 1700000000000, "open": 100, "high": 105, "low": 99, "close": 102, "volume": 50, "close_time": 1700000900000 - 1}
+    ])
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m&limit=500&endTime=1700000000000")
+    assert res.status == 200
+    state.client.get_klines.assert_called_with("BTCUSDT", interval="15m", limit=500, endTime=1700000000000)

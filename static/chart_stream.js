@@ -204,13 +204,10 @@ export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription =
     },
     getBars: async (symbolInfo, resolution, periodParams, onHistory, onError) => {
       try {
-        if (!periodParams.firstDataRequest) {
-          onHistory([], { noData: true });
-          return;
-        }
-        const tfMap = { '1': '1m', '5': '5m', '15': '15m', '60': '1h', '240': '4h', 'D': '1d' };
+        const tfMap = { '1': '1m', '3': '3m', '5': '5m', '15': '15m', '30': '30m', '60': '1h', '120': '2h', '240': '4h', 'D': '1d' };
         const tf = tfMap[resolution] || '15m';
-        const payload = await fetchChartFn(symbolInfo.name, tf);
+        const endTime = (!periodParams.firstDataRequest && periodParams.to) ? Math.floor(periodParams.to * 1000) : null;
+        const payload = await fetchChartFn(symbolInfo.name, tf, endTime);
         if (!payload?.candles?.length) {
           onHistory([], { noData: true });
           return;
@@ -223,6 +220,7 @@ export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription =
           close: parseFloat(k.close),
           volume: parseFloat(k.volume || 100),
         }));
+        bars.sort((a, b) => a.time - b.time);
         onHistory(bars, { noData: false });
       } catch (err) {
         onError(err.message || 'Error fetching bars');
