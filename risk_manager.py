@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, Dict
-from technical_engine import MarketSignal
+from technical_engine import MarketSignal, PatternType
 
 @dataclass
 class EnrichedSignal(MarketSignal):
@@ -17,6 +17,7 @@ class RiskManager:
         entry = signal.entry_price
         sl = signal.stop_loss
         is_long = signal.signal_type == "LONG"
+        required_rr = 1.2 if getattr(signal, "pattern", None) == PatternType.MEAN_REVERSION_TRAP else self.min_rr
 
         if is_long:
             risk = entry - sl
@@ -28,16 +29,16 @@ class RiskManager:
             if sl_pct < self.min_sl_pct or sl_pct > self.max_sl_pct:
                 return None
 
-            # If signal already specified a take_profit, check if that TP achieves min_rr
+            # If signal already specified a take_profit, check if that TP achieves required_rr
             if signal.take_profit > entry:
                 rr = (signal.take_profit - entry) / risk
-                if rr < self.min_rr:
+                if rr < required_rr:
                     return None
-                tp1 = entry + risk * 1.5
-                tp2 = signal.take_profit
+                tp1 = getattr(signal, "tp1", 0.0) or (entry + risk * 1.2)
+                tp2 = getattr(signal, "tp2", 0.0) or signal.take_profit
             else:
-                tp1 = entry + risk * 1.5
-                tp2 = entry + risk * 2.5
+                tp1 = entry + risk * 1.2
+                tp2 = entry + risk * 2.2
                 rr = (tp2 - entry) / risk
         else:
             risk = sl - entry
@@ -50,14 +51,15 @@ class RiskManager:
 
             if signal.take_profit > 0 and signal.take_profit < entry:
                 rr = (entry - signal.take_profit) / risk
-                if rr < self.min_rr:
+                if rr < required_rr:
                     return None
-                tp1 = entry - risk * 1.5
-                tp2 = signal.take_profit
+                tp1 = getattr(signal, "tp1", 0.0) or (entry - risk * 1.2)
+                tp2 = getattr(signal, "tp2", 0.0) or signal.take_profit
             else:
-                tp1 = entry - risk * 1.5
-                tp2 = entry - risk * 2.5
+                tp1 = entry - risk * 1.2
+                tp2 = entry - risk * 2.2
                 rr = (entry - tp2) / risk
+
 
         if rr < self.min_rr:
             return None
