@@ -337,4 +337,26 @@ export function formatSignalPlainExplanation(signal) {
   return isLong ? '🟢 Kèo Mua (LONG) theo cấu trúc thị trường' : '🔴 Kèo Bán (SHORT) theo cấu trúc thị trường';
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation};
+export function filterSymbols(symbols, query, limit = 50) {
+  if (!Array.isArray(symbols)) return [];
+  const rawQ = (query || '').toUpperCase().trim();
+  if (!rawQ) return symbols.slice(0, limit);
+  const q = rawQ.endsWith('USDT') && rawQ.length > 4 ? rawQ.slice(0, -4) : rawQ;
+
+  const prefixMatches = [];
+  const substringMatches = [];
+
+  for (const s of symbols) {
+    const norm = String(s).toUpperCase();
+    const base = norm.replace(/USDT$/, '').replace(/^1000/, '');
+    if (norm.startsWith(q) || base.startsWith(q)) {
+      prefixMatches.push(s);
+    } else if (norm.includes(q) || base.includes(q)) {
+      substringMatches.push(s);
+    }
+  }
+
+  return [...prefixMatches, ...substringMatches].slice(0, limit);
+}
+
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols};

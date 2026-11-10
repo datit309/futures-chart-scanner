@@ -40,6 +40,33 @@
 .guide-item strong{color:#fff;font-weight:700}
 .guide-chip{display:inline-block;padding:2px 6px;border-radius:2px;font:10px var(--mono);font-weight:700;margin-right:6px}
 
+
+.symbol-picker-container{position:relative}
+.symbol-picker-btn{background:#111a22;border:1px solid #283641;color:var(--text);padding:6px 11px;font:11px var(--mono);border-radius:3px;display:flex;align-items:center;gap:7px;cursor:pointer;transition:.15s}
+.symbol-picker-btn:hover{border-color:var(--cyan);background:#162430}
+.picker-symbol-text{font-weight:700;color:#fff;letter-spacing:.03em}
+.picker-arrow{font-size:9px;color:var(--muted);margin-left:3px}
+.symbol-dropdown{position:absolute;top:calc(100% + 5px);left:0;width:310px;max-height:420px;background:#0c141c;border:1px solid #233644;border-radius:4px;box-shadow:0 18px 40px rgba(0,0,0,0.75);z-index:99999;display:flex;flex-direction:column;overflow:hidden}
+.symbol-search-box{display:flex;align-items:center;padding:8px 10px;background:#111a24;border-bottom:1px solid #1c2b37;gap:8px}
+#symbolSearchInput{flex:1;background:transparent;border:0;outline:none;font:12px var(--mono);color:#fff;padding:2px 0}
+#symbolSearchInput::placeholder{color:#677785}
+.clear-search-btn{background:transparent;border:0;color:#788795;cursor:pointer;font-size:11px;padding:0 4px}
+.clear-search-btn:hover{color:#fff}
+.symbol-dropdown-tabs{display:flex;border-bottom:1px solid #1c2b37;background:#0e1620;padding:4px 8px;gap:4px}
+.sym-filter-tab{border:0;background:transparent;color:var(--muted);font:9.5px var(--mono);padding:3px 8px;border-radius:2px;cursor:pointer;transition:.15s}
+.sym-filter-tab:hover{color:#d0dde6}
+.sym-filter-tab.active{background:#182835;color:var(--cyan);font-weight:700}
+.symbol-dropdown-list{max-height:280px;overflow-y:auto;padding:4px 0}
+.sym-item{display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:7px 12px;cursor:pointer;font:11px var(--mono);align-items:center;transition:.12s;border-bottom:1px solid #111922}
+.sym-item:hover{background:#172430}
+.sym-name{font-weight:700;color:#fff}
+.sym-name small{color:var(--muted);font-size:9.5px;font-weight:400}
+.sym-price{text-align:right;color:#d0dde6;font-size:10.5px}
+.sym-change{font-size:10px;font-weight:600;text-align:right;min-width:48px}
+.sym-change.up{color:var(--green)}
+.sym-change.down{color:var(--red)}
+.sym-empty{padding:20px;text-align:center;color:var(--muted);font:11px var(--mono)}
+
 </style>
 </head>
 <body>
@@ -47,7 +74,26 @@
 <header class="topbar"><div class="brand"><div class="brand-mark">F</div><div>FUTURES DESK<small>MARKET STRUCTURE SCANNER</small></div></div><div class="top-right"><span class="status"><i class="dot"></i><span id="connection">CONNECTING</span></span><span class="clock" id="clock">--:--:-- ICT</span><div class="top-actions"><button class="btn" id="guideBtn" style="border-color:#3d5668;color:var(--cyan);background:#0d1d28;font-weight:600">📖 HƯỚNG DẪN & CHÚ THÍCH</button><button class="btn" id="refreshBtn">↻ REFRESH</button><button class="btn primary" id="scanBtn">⌕ SCAN MARKET</button></div></div></header>
 <section class="hero"><div><div class="eyebrow">BINANCE USDⓈ-M · PUBLIC MARKET DATA</div><h1>Market structure, without the noise.</h1><p>Quét setup Futures, xem cấu trúc giá và mức rủi ro trên một màn hình.</p></div><div class="meta"><span>FRAME <b id="frameLabel">15m</b></span><span>UNIVERSE <b id="universeLabel">30 PAIRS</b></span><span>LAST SCAN <b id="lastScan">--</b></span></div></section>
 <section class="metrics"><div class="metric"><label>BTC / USDT · PERP</label><strong id="btcPrice">—</strong><span class="sub" id="btcChange">—</span><span class="sub" id="btcVol">24H VOL —</span></div><div class="metric"><label>Pairs monitored</label><strong id="pairCount">—</strong><span class="sub">USDT-M contracts</span></div><div class="metric"><label>Signal Win Rate</label><strong id="winRateVal" style="color:var(--green)">--%</strong><span class="sub" id="winRateDetail">0W / 0L · Net 0.0R</span></div><div class="metric"><label>Scanner status</label><strong id="scanStatus" style="font-size:14px;color:var(--green)">READY</strong><span class="sub" id="scanEvery">5m interval</span></div></section>
-<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="lina_rsi" checked> Sóng Lina RSI (Wave & Pullback)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
+<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><div class="symbol-picker-container" id="symbolPickerContainer">
+  <button class="symbol-picker-btn" id="symbolPickerBtn" type="button" title="Tìm và chọn coin">
+    <span style="font-size:11px;opacity:.8">🔍</span>
+    <span id="symbolPickerLabel" class="picker-symbol-text">BTCUSDT</span>
+    <span class="picker-arrow">▾</span>
+  </button>
+  <div class="symbol-dropdown hidden" id="symbolDropdown">
+    <div class="symbol-search-box">
+      <span style="font-size:11px;opacity:.7">🔍</span>
+      <input type="text" id="symbolSearchInput" placeholder="Tìm coin (BTC, SOL, PEPE...)" autocomplete="off" spellcheck="false" />
+      <button type="button" id="clearSymbolSearch" class="clear-search-btn hidden">✕</button>
+    </div>
+    <div class="symbol-dropdown-tabs">
+      <button type="button" class="sym-filter-tab active" data-filter="top">TOP VOLUME</button>
+      <button type="button" class="sym-filter-tab" data-filter="all">TẤT CẢ (500+ COIN)</button>
+    </div>
+    <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
+  </div>
+  <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="lina_rsi" checked> Sóng Lina RSI (Wave & Pullback)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
 <aside class="side"><section class="panel"><div class="side-head"><h2>Signal feed</h2><div class="feed-tabs" id="feedTabs"><button class="feed-tab active" data-tab="ALL">ALL</button><button class="feed-tab" data-tab="ACTIVE">OPEN</button><button class="feed-tab" data-tab="HISTORY">HISTORY</button></div></div><div class="signal-list" id="signalList"><div class="signal-empty">Chưa có setup đạt tiêu chí. Chọn <b>SCAN MARKET</b> để quét dữ liệu Futures mới nhất.</div></div><div class="footnote">Tín hiệu được theo dõi tự động theo Take Profit và Stop Loss.</div></section><section class="panel watchlist"><div class="side-head"><h2>High-volume contracts</h2><span class="count">24H QUOTE VOL</span></div><div class="watch-list" id="watchList"><div class="signal-empty">Đang tải danh sách hợp đồng…</div></div><div class="footnote">Binance USDⓈ-M · chỉ gồm hợp đồng USDT perpetual.</div></section></aside></main>
 <div class="disclaimer">RỦI RO CAO · Futures có thể khiến bạn mất toàn bộ vốn. Tín hiệu và mức Entry/SL/TP chỉ mang tính nghiên cứu; không đảm bảo lợi nhuận. Luôn tự xác minh trước khi giao dịch.</div>
 
@@ -153,10 +199,10 @@
 
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation} from '/static/chart_stream.js?v=lina1';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols} from '/static/chart_stream.js?v=lina1';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',widget:null,chartReady:false,orderLines:[],linaStudyId:null,signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
+  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],linaStudyId:null,signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -394,6 +440,33 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     });
   }
 
+  function renderSymbolDropdown(){
+    const list = $('#symbolDropdownList');
+    if (!list) return;
+    const baseList = state.symbolFilterTab === 'top' ? state.symbols : state.allSymbols;
+    const filtered = filterSymbols(baseList, state.symbolQuery, 80);
+    if (!filtered.length) {
+      list.innerHTML = `<div class="sym-empty">Không tìm thấy coin khớp với "<b>${state.symbolQuery}</b>"</div>`;
+      return;
+    }
+    list.innerHTML = filtered.map(s => {
+      const t = state.tickers[s] || {};
+      const chg = Number(t.priceChangePercent || 0);
+      const isSel = s === state.symbol;
+      return `<div class="sym-item${isSel ? ' highlighted' : ''}" data-symbol="${s}">
+        <div class="sym-name">${s.replace('USDT', '')} <small>/USDT</small></div>
+        <div class="sym-price">${t.lastPrice ? fmt(t.lastPrice) : '—'}</div>
+        <div class="sym-change ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.sym-item').forEach(el => {
+      el.onclick = () => {
+        selectSymbol(el.dataset.symbol);
+        $('#symbolDropdown').classList.add('hidden');
+      };
+    });
+  }
+
   function renderSignalList(){const box=$('#signalList');const filtered=filterSignals(state.signals,state.feedTab);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
 
   async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
@@ -402,11 +475,11 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   function renderWatchlist(){const box=$('#watchList');if(!state.symbols.length){box.innerHTML='<div class="signal-empty">Không lấy được danh sách. Thử refresh.</div>';return}box.innerHTML=state.symbols.slice(0,15).map((s,i)=>{const t=state.tickers[s]||{};const change=Number(t.priceChangePercent||0);return `<div class="watch-row" data-symbol="${s}"><span class="watch-symbol">${s.replace('USDT','')}<span style="color:var(--muted)"> / USDT</span></span><span class="watch-price">${fmt(t.lastPrice||0)}</span><span class="watch-change ${change>=0?'up':'down'}">${change>=0?'+':''}${change.toFixed(2)}% · V ${fmt(t.quoteVolume||0)}</span></div>`}).join('');$$('.watch-row').forEach(e=>e.onclick=()=>selectSymbol(e.dataset.symbol))}
 
-  async function loadSymbols(){try{const r=await fetch('/api/symbols');if(!r.ok)throw Error('symbols '+r.status);const d=await r.json();state.symbols=d.symbols||[];state.tickers=d.tickers||{};if(state.tickers.BTCUSDT){$('#btcPrice').textContent=fmt(state.tickers.BTCUSDT.lastPrice);$('#btcChange').textContent=`${Number(state.tickers.BTCUSDT.priceChangePercent).toFixed(2)}%`;$('#btcVol').textContent=`24H VOL ${fmt(state.tickers.BTCUSDT.quoteVolume)}`}$('#pairCount').textContent=state.symbols.length;$('#universeLabel').textContent=(state.symbols.length||30)+' PAIRS';renderWatchlist();const sel=$('#symbolSelect');sel.innerHTML=state.symbols.map(s=>`<option value="${s}">${s}</option>`).join('');if(!state.symbols.includes(state.symbol))sel.insertAdjacentHTML('afterbegin',`<option value="${state.symbol}">${state.symbol}</option>`);sel.value=state.symbol}catch(e){console.warn(e);$('#connection').textContent='API OFFLINE'}}
+  async function loadSymbols(){try{const r=await fetch('/api/symbols');if(!r.ok)throw Error('symbols '+r.status);const d=await r.json();state.symbols=d.symbols||[];state.allSymbols=d.all_symbols||d.symbols||[];state.tickers=d.tickers||{};if(state.tickers.BTCUSDT){$('#btcPrice').textContent=fmt(state.tickers.BTCUSDT.lastPrice);$('#btcChange').textContent=`${Number(state.tickers.BTCUSDT.priceChangePercent).toFixed(2)}%`;$('#btcVol').textContent=`24H VOL ${fmt(state.tickers.BTCUSDT.quoteVolume)}`}$('#pairCount').textContent=state.symbols.length;$('#universeLabel').textContent=(state.symbols.length||30)+' PAIRS';renderWatchlist();const sel=$('#symbolSelect');sel.innerHTML=state.symbols.map(s=>`<option value="${s}">${s}</option>`).join('');if(!state.symbols.includes(state.symbol))sel.insertAdjacentHTML('afterbegin',`<option value="${state.symbol}">${state.symbol}</option>`);sel.value=state.symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=state.symbol;renderSymbolDropdown();}catch(e){console.warn(e);$('#connection').textContent='API OFFLINE'}}
 
   async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'1000'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;const rb=$('#regimeBadge');if(rb&&d.regime){rb.textContent=`${d.regime} (ADX ${d.adx!=null?d.adx:'--'})`;rb.style.color=d.regime==='RANGING'?'var(--amber)':'var(--green)';}renderTradingViewDrawings(d);applyTimeRange(state.rangeDays||'3');if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
 
-  async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;$('#symbolSelect').value=symbol;$('#chartSymbol').textContent=symbol;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();}
+  async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;$('#symbolSelect').value=symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=symbol;$('#chartSymbol').textContent=symbol;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();}
 
   async function loadStatus(){try{const r=await fetch('/api/status');if(!r.ok)throw Error();const d=await r.json();if(d.last_scan_time){$('#lastScan').textContent=new Date(d.last_scan_time*1000).toLocaleTimeString('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit'})+' ICT'}$('#scanStatus').textContent=d.is_scanning?'SCANNING':'READY';$('#scanStatus').style.color=d.is_scanning?'var(--amber)':'var(--green)';$('#scanEvery').textContent=Math.round((d.scan_interval_seconds||300)/60)+'m interval';await loadSignals()}catch{}}
 
@@ -421,6 +494,64 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
   function connectMarketWs(){if(state.marketReconnectTimer){clearTimeout(state.marketReconnectTimer);state.marketReconnectTimer=null}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close()}const generation=(state.marketGeneration||0)+1;state.marketGeneration=generation;state.marketReconnectAttempt=0;const url=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/market?symbol=${encodeURIComponent(state.symbol)}&timeframe=${encodeURIComponent(state.timeframe)}`;state.lastTick=0;state.connectedAt=Date.now();state.marketWs=new WebSocket(url);setStreamStatus('connecting');state.marketWs.onopen=()=>{if(generation===state.marketGeneration){state.connectedAt=Date.now();setStreamStatus('connected')}};state.marketWs.onmessage=async e=>{if(generation!==state.marketGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='status'){setStreamStatus(msg.state);if(msg.state==='reconnecting'&&!state.recovering){state.recovering=true;await loadChart();state.recovering=false}}else if(msg.type==='tick'&&msg.symbol===state.symbol){applyTick(msg)}else if(msg.type==='kline'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){applyKline(msg)}else if(msg.type==='structure'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){state.chartPayload={...state.chartPayload,...msg};renderTradingViewDrawings(msg);}}catch(err){console.error('Market stream message error',err)}};state.marketWs.onclose=()=>{if(generation!==state.marketGeneration)return;setStreamStatus('reconnecting');if(!state.marketReconnectTimer){const attempt=++state.marketReconnectAttempt;const delay=clientReconnectDelay(attempt);state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;await loadChart();connectMarketWs()},delay)}};state.marketWs.onerror=()=>{if(generation===state.marketGeneration)setStreamStatus('error')}}
 
   function connectWs(){try{state.ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/stream`);state.ws.onopen=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('connecting')};state.ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='INIT_STATE'||m.type==='SCAN_COMPLETE'||m.type==='SIGNAL_OUTCOME'){loadSignals();loadStatus()}if(m.type==='NEW_SIGNAL'){const s=m.data;toast(`Kèo mới · ${s.symbol} ${s.signal_type}`);loadSignals()}};state.ws.onclose=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('reconnecting');setTimeout(connectWs,3000)};state.ws.onerror=()=>state.ws.close()}catch{}}
+
+  $('#symbolPickerBtn').onclick = (e) => {
+    e.stopPropagation();
+    const dd = $('#symbolDropdown');
+    const isHidden = dd.classList.toggle('hidden');
+    if (!isHidden) {
+      $('#symbolSearchInput').focus();
+      $('#symbolSearchInput').select();
+      renderSymbolDropdown();
+    }
+  };
+
+  $('#symbolSearchInput').oninput = (e) => {
+    state.symbolQuery = e.target.value.trim();
+    $('#clearSymbolSearch').classList.toggle('hidden', !state.symbolQuery);
+    renderSymbolDropdown();
+  };
+
+  $('#clearSymbolSearch').onclick = (e) => {
+    e.stopPropagation();
+    $('#symbolSearchInput').value = '';
+    state.symbolQuery = '';
+    $('#clearSymbolSearch').classList.add('hidden');
+    $('#symbolSearchInput').focus();
+    renderSymbolDropdown();
+  };
+
+  $('#symbolSearchInput').onkeydown = (e) => {
+    if (e.key === 'Escape') {
+      $('#symbolDropdown').classList.add('hidden');
+    } else if (e.key === 'Enter') {
+      const first = $('#symbolDropdownList .sym-item');
+      if (first) {
+        selectSymbol(first.dataset.symbol);
+        $('#symbolDropdown').classList.add('hidden');
+      } else if (state.symbolQuery) {
+        const qUpper = state.symbolQuery.toUpperCase();
+        const custom = qUpper.endsWith('USDT') ? qUpper : qUpper + 'USDT';
+        selectSymbol(custom);
+        $('#symbolDropdown').classList.add('hidden');
+      }
+    }
+  };
+
+  $$('.sym-filter-tab').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    $$('.sym-filter-tab').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state.symbolFilterTab = b.dataset.filter;
+    renderSymbolDropdown();
+  });
+
+  document.addEventListener('click', (e) => {
+    const container = $('#symbolPickerContainer');
+    if (container && !container.contains(e.target)) {
+      $('#symbolDropdown')?.classList.add('hidden');
+    }
+  });
 
   $('#symbolSelect').onchange=e=>selectSymbol(e.target.value);
     $$('.range-btn').forEach(b=>b.onclick=()=>applyTimeRange(b.dataset.days));

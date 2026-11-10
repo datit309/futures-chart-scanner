@@ -261,11 +261,15 @@ async def handle_api_symbols(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     if not state.top_symbols:
         state.top_symbols = await state.client.get_top_futures_symbols(limit=state.config.top_n_coins)
-    return web.json_response({
+    tickers = {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols}
+    resp: Dict[str, Any] = {
         "symbols": state.top_symbols,
         "count": len(state.top_symbols),
-        "tickers": {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols},
-    })
+        "tickers": tickers,
+    }
+    if state.client.ticker_metrics:
+        resp["all_symbols"] = list(state.client.ticker_metrics.keys())
+    return web.json_response(resp)
 
 def build_structure_payload(
     state: "WebServerState",
@@ -464,8 +468,13 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
     state: WebServerState = request.app["state"]
     symbol = request.query.get("symbol", "").upper()
     timeframe = request.query.get("timeframe", "")
-    if timeframe not in MARKET_WS_TIMEFRAMES or not MARKET_SYMBOL_RE.fullmatch(symbol) or symbol not in state.top_symbols:
+    if timeframe not in MARKET_WS_TIMEFRAMES or not MARKET_SYMBOL_RE.fullmatch(symbol):
         return web.json_response({"error": "invalid_subscription"}, status=400)
+    if symbol not in state.top_symbols:
+        if symbol in state.client.ticker_metrics:
+            state.top_symbols.append(symbol)
+        else:
+            return web.json_response({"error": "invalid_subscription"}, status=400)
 
     ws = web.WebSocketResponse(heartbeat=20.0)
     await ws.prepare(request)

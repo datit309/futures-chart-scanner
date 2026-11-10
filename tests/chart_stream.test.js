@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -269,4 +269,29 @@ test('formatSignalPlainExplanation translates trading setup into simple Vietname
   const breakout = { signal_type: 'LONG', pattern: 'TRENDLINE_BREAKOUT' };
   const exp3 = formatSignalPlainExplanation(breakout);
   assert.ok(exp3.includes('Phá vỡ cản') || exp3.includes('Breakout'));
+});
+
+test('filterSymbols filters and ranks symbols by search query', () => {
+  const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', '1000PEPEUSDT', 'SUIUSDT', 'NEARUSDT'];
+
+  // Empty query returns all up to limit
+  assert.equal(filterSymbols(symbols, '').length, 7);
+
+  // Case-insensitive prefix match
+  const sol = filterSymbols(symbols, 'sol');
+  assert.deepEqual(sol, ['SOLUSDT']);
+
+  // Base substring match (e.g. "pepe" in "1000PEPEUSDT")
+  const pepe = filterSymbols(symbols, 'pepe');
+  assert.deepEqual(pepe, ['1000PEPEUSDT']);
+
+  // Partial match matching multiple coins
+  const eCoins = filterSymbols(symbols, 'e');
+  // 'ETHUSDT' starts with E, '1000PEPEUSDT' and 'NEARUSDT' contain E
+  assert.equal(eCoins[0], 'ETHUSDT'); // Prefix match prioritized
+  assert.ok(eCoins.includes('1000PEPEUSDT'));
+  assert.ok(eCoins.includes('NEARUSDT'));
+
+  // Unknown symbol query returns empty array
+  assert.deepEqual(filterSymbols(symbols, 'XYZNONEXISTENT'), []);
 });
