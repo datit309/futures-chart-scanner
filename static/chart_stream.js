@@ -202,24 +202,103 @@ export function formatPositionShape(signal, lastCandle) {
   const sl = Number(signal.stop_loss);
   const tp = Number(signal.tp2 || signal.take_profit || signal.tp1);
   const isShort = signal.signal_type === 'SHORT';
-  const shape = isShort ? 'short_position' : 'long_position';
+  const tStart = lastCandle.time;
   const timeStep = 900;
+  const tEnd = lastCandle.time + timeStep * 12;
+
+  const tpDiff = ((tp - entry) / entry * 100).toFixed(2);
+  const slDiff = ((sl - entry) / entry * 100).toFixed(2);
+
   return {
-    points: [
-      { time: lastCandle.time, price: entry },
-      { time: lastCandle.time + timeStep * 8, price: entry }
-    ],
-    options: {
-      shape,
-      lock: true,
-      disableSelection: false,
-      overrides: {
-        stopLevel: { price: sl },
-        profitLevel: { price: tp },
-        stopBackground: 'rgba(255, 77, 79, 0.25)',
-        profitBackground: 'rgba(0, 214, 154, 0.25)',
-        linecolor: '#ffffff',
-        showPriceLabels: true,
+    arrow: {
+      point: { time: tStart, price: entry },
+      options: {
+        shape: isShort ? 'arrow_down' : 'arrow_up',
+        text: isShort ? '🔴 VÀO SHORT' : '🟢 VÀO LONG',
+        overrides: {
+          color: isShort ? '#ff4d4f' : '#00d69a',
+          fontsize: 12,
+          bold: true,
+        }
+      }
+    },
+    entryLine: {
+      points: [{ time: tStart, price: entry }, { time: tEnd, price: entry }],
+      options: {
+        shape: 'trend_line',
+        text: `ENTRY  ${entry}  (GIÁ VÀO)`,
+        lock: true,
+        overrides: {
+          linecolor: '#ffffff',
+          linewidth: 2,
+          linestyle: 0,
+          textcolor: '#ffffff',
+          fontsize: 11,
+          bold: true,
+          showLabel: true,
+        }
+      }
+    },
+    tpLine: {
+      points: [{ time: tStart, price: tp }, { time: tEnd, price: tp }],
+      options: {
+        shape: 'trend_line',
+        text: `🎯 TP  ${tp}  (+${Math.abs(tpDiff)}% CHỐT LỜI)`,
+        lock: true,
+        overrides: {
+          linecolor: '#00d69a',
+          linewidth: 2,
+          linestyle: 2,
+          textcolor: '#00d69a',
+          fontsize: 11,
+          bold: true,
+          showLabel: true,
+        }
+      }
+    },
+    slLine: {
+      points: [{ time: tStart, price: sl }, { time: tEnd, price: sl }],
+      options: {
+        shape: 'trend_line',
+        text: `🛑 SL  ${sl}  (-${Math.abs(slDiff)}% CẮT LỖ)`,
+        lock: true,
+        overrides: {
+          linecolor: '#ff4d4f',
+          linewidth: 2,
+          linestyle: 2,
+          textcolor: '#ff4d4f',
+          fontsize: 11,
+          bold: true,
+          showLabel: true,
+        }
+      }
+    },
+    profitBox: {
+      points: [{ time: tStart, price: isShort ? entry : tp }, { time: tEnd, price: isShort ? tp : entry }],
+      options: {
+        shape: 'rectangle',
+        lock: true,
+        overrides: {
+          color: 'rgba(0, 214, 154, 0.40)',
+          backgroundColor: 'rgba(0, 214, 154, 0.15)',
+          fillBackground: true,
+          linewidth: 1,
+          showLabel: false,
+        }
+      }
+    },
+    stopBox: {
+      points: [{ time: tStart, price: isShort ? sl : entry }, { time: tEnd, price: isShort ? entry : sl }],
+      options: {
+        shape: 'rectangle',
+        lock: true,
+        overrides: {
+          color: 'rgba(255, 77, 79, 0.40)',
+          backgroundColor: 'rgba(255, 77, 79, 0.15)',
+          fillBackground: true,
+          linewidth: 1,
+          showLabel: false,
+        }
       }
     }
   };
@@ -242,9 +321,11 @@ export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription =
     resolveSymbol: (symbolName, onResolve, onError) => {
       const s = (symbolName || 'BTCUSDT').toUpperCase().replace('BINANCE:', '').replace('.P', '').trim();
       let scale = 100;
-      if (s.includes('PEPE') || s.includes('SHIB') || s.includes('BONK') || s.includes('FLOKI')) {
-        scale = 100000;
-      } else if (s.includes('DOGE') || s.includes('ADA') || s.includes('XRP') || s.includes('TRX')) {
+      if (s.includes('SHIB') || s.includes('BONK') || s.includes('FLOKI') || s.includes('BABY')) {
+        scale = 10000000;
+      } else if (s.includes('PEPE') || s.includes('LUNC') || s.includes('PUMP')) {
+        scale = 1000000;
+      } else if (s.includes('DOGE') || s.includes('ADA') || s.includes('XRP') || s.includes('TRX') || s.includes('ON') || s.includes('WLD')) {
         scale = 10000;
       }
       setTimeout(() => onResolve({

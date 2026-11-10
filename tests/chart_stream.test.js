@@ -203,7 +203,12 @@ test('createTradingViewDatafeed resolves symbol with correct pricescale', async 
   let pepeResolved = null;
   datafeed.resolveSymbol('1000PEPEUSDT', (info) => { pepeResolved = info; }, () => {});
   await new Promise(r => setTimeout(r, 10));
-  assert.equal(pepeResolved.pricescale, 100000);
+  assert.equal(pepeResolved.pricescale, 1000000);
+
+  let pumpResolved = null;
+  datafeed.resolveSymbol('PUMPUSDT', (info) => { pumpResolved = info; }, () => {});
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(pumpResolved.pricescale, 1000000);
 });
 
 test('createTradingViewDatafeed passes endTime on historical pagination', async () => {
@@ -242,19 +247,22 @@ test('formatStructureBreakShape formats BOS and CHOCH dashed line descriptors', 
   assert.equal(shape2.options.overrides.linecolor, '#f59e0b');
 });
 
-test('formatPositionShape creates long_position and short_position TradingView tool shapes', () => {
+test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP and boxes', () => {
   const longSig = { signal_type: 'LONG', entry_price: 80000, stop_loss: 79000, tp2: 82500 };
   const lastCandle = { time: 1700000 };
-  const longShape = formatPositionShape(longSig, lastCandle);
-  assert.equal(longShape.options.shape, 'long_position');
-  assert.equal(longShape.options.overrides.stopLevel.price, 79000);
-  assert.equal(longShape.options.overrides.profitLevel.price, 82500);
+  const shapes = formatPositionShape(longSig, lastCandle);
+  assert.equal(shapes.arrow.options.shape, 'arrow_up');
+  assert.equal(shapes.entryLine.options.overrides.linecolor, '#ffffff');
+  assert.equal(shapes.tpLine.options.overrides.linecolor, '#00d69a');
+  assert.equal(shapes.slLine.options.overrides.linecolor, '#ff4d4f');
+  assert.ok(shapes.tpLine.options.text.includes('TP'));
+  assert.ok(shapes.slLine.options.text.includes('SL'));
 
   const shortSig = { signal_type: 'SHORT', entry_price: 80000, stop_loss: 81000, tp2: 77500 };
-  const shortShape = formatPositionShape(shortSig, lastCandle);
-  assert.equal(shortShape.options.shape, 'short_position');
-  assert.equal(shortShape.options.overrides.stopLevel.price, 81000);
-  assert.equal(shortShape.options.overrides.profitLevel.price, 77500);
+  const shortShapes = formatPositionShape(shortSig, lastCandle);
+  assert.equal(shortShapes.arrow.options.shape, 'arrow_down');
+  assert.equal(shortShapes.slLine.options.overrides.linecolor, '#ff4d4f');
+  assert.equal(shortShapes.tpLine.options.overrides.linecolor, '#00d69a');
 });
 
 test('formatSignalPlainExplanation translates trading setup into simple Vietnamese', () => {

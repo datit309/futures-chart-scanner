@@ -320,13 +320,18 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         }
       }
 
-      // 4. Native TradingView Long / Short Position Tool (Green/Red R:R Box)
+      // 4. Signal Trade Visuals (Arrow, Entry, SL, TP, and Profit/Stop Boxes)
       const sig=structure.signal;
       const lastCandle=structure.candles?.at(-1);
       if(o.position&&sig&&sig.entry_price&&lastCandle){
-        const posShape=formatPositionShape(sig,lastCandle);
-        if(posShape){
-          c.createMultipointShape(posShape.points,posShape.options);
+        const posShapes=formatPositionShape(sig,lastCandle);
+        if(posShapes){
+          if(posShapes.arrow) c.createShape(posShapes.arrow.point, posShapes.arrow.options);
+          if(posShapes.profitBox) c.createMultipointShape(posShapes.profitBox.points, posShapes.profitBox.options);
+          if(posShapes.stopBox) c.createMultipointShape(posShapes.stopBox.points, posShapes.stopBox.options);
+          if(posShapes.entryLine) c.createMultipointShape(posShapes.entryLine.points, posShapes.entryLine.options);
+          if(posShapes.tpLine) c.createMultipointShape(posShapes.tpLine.points, posShapes.tpLine.options);
+          if(posShapes.slLine) c.createMultipointShape(posShapes.slLine.points, posShapes.slLine.options);
         }
       }
     }catch(err){console.warn('renderTradingViewDrawings error:',err);}
