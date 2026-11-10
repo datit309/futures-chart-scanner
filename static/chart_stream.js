@@ -155,11 +155,11 @@ export function formatOrderBlockShape(ob, lastTime) {
       lock: true,
       disableSelection: false,
       overrides: {
-        color: isBull ? 'rgba(0, 214, 154, 0.45)' : 'rgba(255, 94, 110, 0.45)',
-        backgroundColor: isBull ? 'rgba(0, 214, 154, 0.20)' : 'rgba(255, 94, 110, 0.20)',
+        color: isBull ? 'rgba(59, 130, 246, 0.50)' : 'rgba(168, 85, 247, 0.50)',
+        backgroundColor: isBull ? 'rgba(59, 130, 246, 0.16)' : 'rgba(168, 85, 247, 0.16)',
         fillBackground: true,
         linewidth: 1,
-        textcolor: isBull ? '#00d69a' : '#ff5e6e',
+        textcolor: isBull ? '#60a5fa' : '#c084fc',
         fontsize: 10,
         showLabel: true,
       }
@@ -169,7 +169,6 @@ export function formatOrderBlockShape(ob, lastTime) {
 
 export function formatStructureBreakShape(item) {
   const isBOS = item.type === 'BOS';
-  const color = item.is_bullish ? '#00d69a' : '#ff5e6e';
   const textLabel = isBOS ? 'BOS' : 'CHoCH';
   return {
     points: [
@@ -182,10 +181,10 @@ export function formatStructureBreakShape(item) {
       lock: true,
       disableSelection: false,
       overrides: {
-        linecolor: isBOS ? '#788795' : color,
+        linecolor: isBOS ? '#94a3b8' : '#f59e0b',
         linewidth: 1,
         linestyle: 2, // dashed
-        textcolor: isBOS ? '#a7b2bd' : color,
+        textcolor: isBOS ? '#cbd5e1' : '#fbbf24',
         fontsize: 9,
         showLabel: true,
       }
@@ -213,9 +212,9 @@ export function formatPositionShape(signal, lastCandle) {
       overrides: {
         stopLevel: { price: sl },
         profitLevel: { price: tp },
-        stopBackground: 'rgba(255, 94, 110, 0.22)',
-        profitBackground: 'rgba(0, 214, 154, 0.22)',
-        linecolor: '#65cfff',
+        stopBackground: 'rgba(255, 77, 79, 0.25)',
+        profitBackground: 'rgba(0, 214, 154, 0.25)',
+        linecolor: '#ffffff',
         showPriceLabels: true,
       }
     }

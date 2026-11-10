@@ -185,7 +185,7 @@ test('formatOrderBlockShape creates rectangle shape descriptor', () => {
   };
   const shape = formatOrderBlockShape(ob, 1700020000);
   assert.equal(shape.options.shape, 'rectangle');
-  assert.equal(shape.options.overrides.backgroundColor, 'rgba(0, 214, 154, 0.20)');
+  assert.equal(shape.options.overrides.backgroundColor, 'rgba(59, 130, 246, 0.16)');
   assert.equal(shape.points[0].price, 76500);
   assert.equal(shape.points[1].price, 76000);
   assert.equal(shape.points[1].time, 1700020000);
@@ -237,7 +237,7 @@ test('formatStructureBreakShape formats BOS and CHOCH dashed line descriptors', 
   const choch = { type: 'CHOCH', price: 79000, time_start: 1700000, time_end: 1700900, is_bullish: false };
   const shape2 = formatStructureBreakShape(choch);
   assert.equal(shape2.options.text, 'CHoCH');
-  assert.equal(shape2.options.overrides.linecolor, '#ff5e6e');
+  assert.equal(shape2.options.overrides.linecolor, '#f59e0b');
 });
 
 test('formatPositionShape creates long_position and short_position TradingView tool shapes', () => {
