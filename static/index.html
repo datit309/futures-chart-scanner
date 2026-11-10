@@ -291,9 +291,9 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       clearTradingViewDrawings();
       const o=overlayState();
 
-      // 1. Structure Break Shifts (BOS & CHoCH) - max 2 latest non-overlapping
+      // 1. Structure Break Shifts (BOS & CHoCH) - confirmed chronological breaks
       if(o.structure&&structure.structure_breaks?.length){
-        structure.structure_breaks.slice(-2).forEach(sb=>{
+        structure.structure_breaks.forEach(sb=>{
           const s=formatStructureBreakShape(sb);
           c.createMultipointShape(s.points,s.options);
         });

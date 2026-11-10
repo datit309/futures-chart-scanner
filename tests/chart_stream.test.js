@@ -230,13 +230,13 @@ test('formatStructureBreakShape formats BOS and CHOCH dashed line descriptors', 
   const bos = { type: 'BOS', price: 80000, time_start: 1700000, time_end: 1700900, is_bullish: true };
   const shape = formatStructureBreakShape(bos);
   assert.equal(shape.options.shape, 'trend_line');
-  assert.equal(shape.options.text, 'BOS');
+  assert.ok(shape.options.text.includes('BOS'));
   assert.equal(shape.options.overrides.linestyle, 2);
   assert.equal(shape.points[0].price, 80000);
 
   const choch = { type: 'CHOCH', price: 79000, time_start: 1700000, time_end: 1700900, is_bullish: false };
   const shape2 = formatStructureBreakShape(choch);
-  assert.equal(shape2.options.text, 'CHoCH');
+  assert.ok(shape2.options.text.includes('CHoCH'));
   assert.equal(shape2.options.overrides.linecolor, '#f59e0b');
 });
 

@@ -553,59 +553,65 @@ class TechnicalEngine:
         if n < 6 or not swings:
             return []
 
-        sorted_swings = sorted(swings, key=lambda s: s.index)
-        shifts = []
-        last_trend = None  # "BULL" or "BEAR"
-
-        for s in sorted_swings:
-            # Look for the first candle after this swing that breaks through its price level
+        break_events = []
+        for s in swings:
             for i in range(s.index + 1, n):
                 c = float(klines[i]["close"])
                 prev_c = float(klines[i - 1]["close"])
+                if s.is_high and prev_c <= s.price and c > s.price:
+                    break_events.append({"break_idx": i, "swing": s, "direction": "UP"})
+                    break
+                elif not s.is_high and prev_c >= s.price and c < s.price:
+                    break_events.append({"break_idx": i, "swing": s, "direction": "DOWN"})
+                    break
 
-                if s.is_high:
-                    if prev_c <= s.price and c > s.price:
-                        # Broken upward
-                        shift_type = "BOS" if last_trend == "BULL" else "CHOCH"
-                        last_trend = "BULL"
-                        t_start = int(klines[s.index]["timestamp"] / 1000)
-                        t_end = int(klines[i]["timestamp"] / 1000)
-                        shifts.append({
-                            "type": shift_type,
-                            "price": round(s.price, 4),
-                            "time_start": t_start,
-                            "time_end": t_end,
-                            "label": f"{shift_type} Bullish" if shift_type == "BOS" else "CHoCH Bullish",
-                            "is_bullish": True,
-                            "swing_index": s.index,
-                            "break_index": i
-                        })
-                        break
+        # Sort strictly chronologically by break candle, closest swing first
+        break_events.sort(key=lambda x: (x["break_idx"], -x["swing"].index))
+
+        # Keep primary broken swing per break bar to avoid overlapping lines
+        deduped_events = []
+        seen_break_bars = set()
+        for ev in break_events:
+            if ev["break_idx"] not in seen_break_bars:
+                seen_break_bars.add(ev["break_idx"])
+                deduped_events.append(ev)
+
+        current_trend = None
+        shifts = []
+        for ev in deduped_events:
+            i = ev["break_idx"]
+            s = ev["swing"]
+            is_bull = ev["direction"] == "UP"
+
+            if is_bull:
+                if current_trend == "BULL":
+                    shift_type = "BOS"
                 else:
-                    if prev_c >= s.price and c < s.price:
-                        # Broken downward
-                        shift_type = "BOS" if last_trend == "BEAR" else "CHOCH"
-                        last_trend = "BEAR"
-                        t_start = int(klines[s.index]["timestamp"] / 1000)
-                        t_end = int(klines[i]["timestamp"] / 1000)
-                        shifts.append({
-                            "type": shift_type,
-                            "price": round(s.price, 4),
-                            "time_start": t_start,
-                            "time_end": t_end,
-                            "label": f"{shift_type} Bearish" if shift_type == "BOS" else "CHoCH Bearish",
-                            "is_bullish": False,
-                            "swing_index": s.index,
-                            "break_index": i
-                        })
-                        break
+                    shift_type = "CHOCH"
+                    current_trend = "BULL"
+            else:
+                if current_trend == "BEAR":
+                    shift_type = "BOS"
+                else:
+                    shift_type = "CHOCH"
+                    current_trend = "BEAR"
 
-        # Filter to the latest distinct key shifts (max 1 latest BOS + max 1 latest CHoCH) to prevent chart clutter
-        latest_bos = next((s for s in reversed(shifts) if s["type"] == "BOS"), None)
-        latest_choch = next((s for s in reversed(shifts) if s["type"] == "CHOCH"), None)
-        filtered = [s for s in [latest_bos, latest_choch] if s]
-        filtered.sort(key=lambda s: s["time_end"])
-        return filtered if filtered else shifts[-2:]
+            t_start = int(klines[s.index]["timestamp"] / 1000)
+            t_end = int(klines[i]["timestamp"] / 1000)
+            label = f"{shift_type} {'Bullish' if is_bull else 'Bearish'}"
+            shifts.append({
+                "type": shift_type,
+                "price": round(s.price, 4),
+                "time_start": t_start,
+                "time_end": t_end,
+                "label": label,
+                "is_bullish": is_bull,
+                "swing_index": s.index,
+                "break_index": i
+            })
+
+        # Return the most recent 6 confirmed structure breaks across the chart
+        return shifts[-6:]
 
     def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint], unmitigated_only: bool = True) -> List[Dict[str, Any]]:
         """
