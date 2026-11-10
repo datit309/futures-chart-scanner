@@ -170,7 +170,9 @@ export function formatOrderBlockShape(ob, lastTime) {
 export function formatStructureBreakShape(item) {
   const isBOS = item.type === 'BOS';
   const isBull = !!item.is_bullish;
-  const textLabel = isBOS ? (isBull ? 'BOS ▴' : 'BOS ▾') : (isBull ? 'CHoCH ▴' : 'CHoCH ▾');
+  const arrow = isBull ? '▲' : '▼';
+  const action = isBull ? 'TĂNG' : 'GIẢM';
+  const textLabel = isBOS ? `BOS  ${arrow}  ${action}` : `CHoCH  ${arrow}  ${action}`;
   return {
     points: [
       { time: item.time_start, price: item.price },
@@ -185,8 +187,9 @@ export function formatStructureBreakShape(item) {
         linecolor: isBOS ? '#94a3b8' : '#f59e0b',
         linewidth: isBOS ? 1 : 2,
         linestyle: 2, // dashed
-        textcolor: isBOS ? '#cbd5e1' : '#fbbf24',
-        fontsize: 10,
+        textcolor: isBOS ? '#e2e8f0' : '#fbbf24',
+        fontsize: 12,
+        bold: true,
         showLabel: true,
       }
     }

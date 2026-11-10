@@ -278,7 +278,10 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     if(!state.widget||!state.chartReady)return;
     try{
       const c=state.widget.chart();
-      c.removeAllShapes();
+      if(c.getAllShapes){
+        c.getAllShapes().forEach(s=>{try{c.removeEntity(s.id);}catch(e){}});
+      }
+      try{c.removeAllShapes();}catch(e){}
       state.orderLines.forEach(l=>{try{l.remove();}catch(e){}});
       state.orderLines=[];
     }catch(e){console.warn('Error clearing shapes:',e);}
