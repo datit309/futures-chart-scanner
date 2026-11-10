@@ -235,29 +235,30 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       clearTradingViewDrawings();
       const o=overlayState();
 
-      // 1. Structure Break Shifts (BOS & CHoCH)
+      // 1. Structure Break Shifts (BOS & CHoCH) - max 2 latest non-overlapping
       if(o.structure&&structure.structure_breaks?.length){
-        structure.structure_breaks.forEach(sb=>{
+        structure.structure_breaks.slice(-2).forEach(sb=>{
           const s=formatStructureBreakShape(sb);
           c.createMultipointShape(s.points,s.options);
         });
       }
 
-      // 2. Institutional Fresh Order Blocks (Demand & Supply)
+      // 2. Institutional Fresh Order Blocks - max 2 (1 Demand, 1 Supply)
       if(o.ob&&structure.order_blocks?.length){
         const lastTime=structure.candles?.at(-1)?.time||Math.floor(Date.now()/1000);
-        structure.order_blocks.forEach(ob=>{
+        structure.order_blocks.slice(-2).forEach(ob=>{
           const s=formatOrderBlockShape(ob,lastTime);
           c.createMultipointShape(s.points,s.options);
         });
       }
 
-      // 3. Trendlines
+      // 3. Primary Trendline - only 1 most relevant line to prevent crossing clutter
       if(o.trendlines&&structure.trendlines?.length){
-        structure.trendlines.forEach(tl=>{
-          const s=formatTrendlineShape(tl);
+        const mainLine=structure.trendlines[0];
+        if(mainLine){
+          const s=formatTrendlineShape(mainLine);
           c.createMultipointShape(s.points,s.options);
-        });
+        }
       }
 
       // 4. Native TradingView Long / Short Position Tool (Green/Red R:R Box)

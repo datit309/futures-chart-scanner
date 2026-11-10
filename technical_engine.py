@@ -666,8 +666,12 @@ class TechnicalEngine:
                         })
                         break
 
-        # Return the most recent 6 structural shifts
-        return shifts[-6:]
+        # Filter to the latest distinct key shifts (max 1 latest BOS + max 1 latest CHoCH) to prevent chart clutter
+        latest_bos = next((s for s in reversed(shifts) if s["type"] == "BOS"), None)
+        latest_choch = next((s for s in reversed(shifts) if s["type"] == "CHOCH"), None)
+        filtered = [s for s in [latest_bos, latest_choch] if s]
+        filtered.sort(key=lambda s: s["time_end"])
+        return filtered if filtered else shifts[-2:]
 
     def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint], unmitigated_only: bool = True) -> List[Dict[str, Any]]:
         """

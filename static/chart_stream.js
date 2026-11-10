@@ -174,7 +174,7 @@ export function formatStructureBreakShape(item) {
   return {
     points: [
       { time: item.time_start, price: item.price },
-      { time: item.time_end + 3600 * 2, price: item.price }
+      { time: item.time_end, price: item.price }
     ],
     options: {
       shape: 'trend_line',
@@ -186,7 +186,7 @@ export function formatStructureBreakShape(item) {
         linewidth: 1,
         linestyle: 2, // dashed
         textcolor: isBOS ? '#a7b2bd' : color,
-        fontsize: 10,
+        fontsize: 9,
         showLabel: true,
       }
     }

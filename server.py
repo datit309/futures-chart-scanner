@@ -354,7 +354,17 @@ def build_structure_payload(
     for band in fvg_bands:
         band["end_index"] = n_bars - 1
 
-    order_blocks = state.technical_engine.detect_order_blocks(klines, swings, unmitigated_only=True)
+    raw_obs = state.technical_engine.detect_order_blocks(klines, swings, unmitigated_only=True)
+    curr_price = float(klines[-1]["close"])
+    demands = [ob for ob in raw_obs if ob["type"] == "BULLISH_OB" and ob["top"] <= curr_price * 1.008]
+    supplies = [ob for ob in raw_obs if ob["type"] == "BEARISH_OB" and ob["bottom"] >= curr_price * 0.992]
+    clean_obs = []
+    if demands:
+        clean_obs.append(max(demands, key=lambda x: x["top"]))
+    if supplies:
+        clean_obs.append(min(supplies, key=lambda x: x["bottom"]))
+    order_blocks = clean_obs if clean_obs else raw_obs[-2:]
+
     structure_breaks = state.technical_engine.detect_market_structure_shifts(klines, swings)
     regression_channel = state.technical_engine.calculate_regression_channel(klines, window=60)
     forecast_path = state.technical_engine.generate_forecast_path(signal_info, klines) if signal_info else []
