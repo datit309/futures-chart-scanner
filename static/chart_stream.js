@@ -302,6 +302,14 @@ export function formatSignalPlainExplanation(signal) {
   const pattern = (signal.pattern || '').toUpperCase();
   const isLong = type === 'LONG';
 
+  if (pattern.includes('LINA') || pattern.includes('RSI_PULLBACK')) {
+    if (isLong) {
+      return '🟢 Sóng Lina RSI (LONG) — Giá hồi về vùng Cầu (40-55) rồi bật tăng tiếp diễn.';
+    } else {
+      return '🔴 Sóng Lina RSI (SHORT) — Giá hồi về vùng Cung (45-60) rồi đảo chiều giảm tiếp diễn.';
+    }
+  }
+
   if (pattern.includes('ORDER_BLOCK') || pattern.includes('SMC')) {
     if (isLong) {
       return '🟢 Đánh LÊN (LONG) — Giá chạm vùng cá voi gom hàng (+OB), kỳ vọng bật tăng.';

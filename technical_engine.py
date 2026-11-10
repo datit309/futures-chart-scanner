@@ -9,6 +9,7 @@ class PatternType(str, Enum):
     FVG_RETEST = "FVG_RETEST"
     MEAN_REVERSION_TRAP = "MEAN_REVERSION_TRAP"
     SMC_ORDER_BLOCK_RETEST = "SMC_ORDER_BLOCK_RETEST"
+    LINA_RSI_PULLBACK = "LINA_RSI_PULLBACK"
 
 @dataclass
 class SwingPoint:
@@ -476,7 +477,73 @@ class TechnicalEngine:
                                 tp2=round(tp2, 4)
                             ))
 
-        # 3. If no regime signal, check for Trendline Breakout
+        # 3. Lina RSI Wave Pullback Setup
+        if not signals and len(klines) >= 50:
+            lina = self.calc_lina_rsi(klines)
+            rsi = lina["rsi"]
+            rsi_ema = lina["rsi_ema"]
+            rsi_wma = lina["rsi_wma"]
+            curr_r = rsi[-1]
+            prev_r = rsi[-2]
+            curr_e = rsi_ema[-1]
+            prev_e = rsi_ema[-2]
+            curr_w = rsi_wma[-1]
+
+            # Bullish Wave: Fast EMA > Slow WMA, RSI dipped in Demand Pullback Zone [40, 55], turns up
+            if curr_e > curr_w and any(40.0 <= rsi[k] <= 55.0 for k in range(-5, -1)):
+                if prev_r <= prev_e and curr_r > curr_e:
+                    recent_low = min(float(k["low"]) for k in klines[-5:])
+                    sl = recent_low - curr_atr * 0.3
+                    risk = curr_price - sl
+                    if risk > 0 and (risk / curr_price) < 0.035:
+                        tp1 = curr_price + risk * 1.5
+                        tp2 = curr_price + risk * 2.5
+                        signals.append(MarketSignal(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            signal_type="LONG",
+                            pattern=PatternType.LINA_RSI_PULLBACK,
+                            entry_price=curr_price,
+                            stop_loss=sl,
+                            take_profit=tp2,
+                            risk_reward=2.5,
+                            description="Lina RSI Bullish Wave Pullback (Dipped in 40-55 Demand Band & Bounced)",
+                            trendlines=trendlines[:1],
+                            sr_zones=sr_zones,
+                            fvgs=fvgs[-3:] if fvgs else [],
+                            regime=regime,
+                            tp1=round(tp1, 4),
+                            tp2=round(tp2, 4)
+                        ))
+
+            # Bearish Wave: Fast EMA < Slow WMA, RSI rallied in Supply Pullback Zone [45, 60], turns down
+            elif curr_e < curr_w and any(45.0 <= rsi[k] <= 60.0 for k in range(-5, -1)):
+                if prev_r >= prev_e and curr_r < curr_e:
+                    recent_high = max(float(k["high"]) for k in klines[-5:])
+                    sl = recent_high + curr_atr * 0.3
+                    risk = sl - curr_price
+                    if risk > 0 and (risk / curr_price) < 0.035:
+                        tp1 = curr_price - risk * 1.5
+                        tp2 = curr_price - risk * 2.5
+                        signals.append(MarketSignal(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            signal_type="SHORT",
+                            pattern=PatternType.LINA_RSI_PULLBACK,
+                            entry_price=curr_price,
+                            stop_loss=sl,
+                            take_profit=tp2,
+                            risk_reward=2.5,
+                            description="Lina RSI Bearish Wave Pullback (Rallied in 45-60 Supply Band & Rejected)",
+                            trendlines=trendlines[:1],
+                            sr_zones=sr_zones,
+                            fvgs=fvgs[-3:] if fvgs else [],
+                            regime=regime,
+                            tp1=round(tp1, 4),
+                            tp2=round(tp2, 4)
+                        ))
+
+        # 4. If no regime signal, check for Trendline Breakout
         if not signals:
             for tl in trendlines:
                 line_val_latest = tl.value_at(len(klines) - 1)
@@ -890,6 +957,44 @@ class TechnicalEngine:
             adx.insert(0, 0.0)
         return adx[-n:]
 
+    def calc_ema(self, arr: List[float], period: int) -> List[float]:
+        n = len(arr)
+        if n == 0:
+            return []
+        alpha = 2.0 / (period + 1.0)
+        res = [arr[0]]
+        for x in arr[1:]:
+            res.append(alpha * x + (1.0 - alpha) * res[-1])
+        return res
+
+    def calc_wma(self, data: List[float], period: int = 45) -> List[float]:
+        n = len(data)
+        if n == 0:
+            return []
+        p = min(period, n)
+        weights = np.arange(1, p + 1, dtype=float)
+        weight_sum = float(weights.sum())
+        res: List[float] = []
+        for i in range(n):
+            if i < p - 1:
+                w = np.arange(1, i + 2, dtype=float)
+                sub = np.array(data[: i + 1], dtype=float)
+                res.append(float(np.dot(sub, w) / w.sum()))
+            else:
+                sub = np.array(data[i - p + 1 : i + 1], dtype=float)
+                res.append(float(np.dot(sub, weights) / weight_sum))
+        return res
+
+    def calc_lina_rsi(self, klines: List[Dict[str, Any]], rsi_period: int = 14, ema_period: int = 9, wma_period: int = 45) -> Dict[str, List[float]]:
+        rsi = self.calc_rsi(klines, period=rsi_period)
+        rsi_ema = self.calc_ema(rsi, period=ema_period)
+        rsi_wma = self.calc_wma(rsi, period=wma_period)
+        return {
+            "rsi": rsi,
+            "rsi_ema": rsi_ema,
+            "rsi_wma": rsi_wma,
+        }
+
     def detect_market_regime(self, klines: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not klines:
             return {"regime": "RANGING", "adx": 0.0, "ema50": 0.0, "ema200": 0.0}
@@ -897,17 +1002,10 @@ class TechnicalEngine:
         curr_adx = adx_series[-1] if adx_series else 0.0
         closes = [float(k["close"]) for k in klines]
 
-        def calc_ema(arr, period):
-            if len(arr) < period:
-                return float(np.mean(arr)) if arr else 0.0
-            alpha = 2 / (period + 1)
-            res = arr[0]
-            for x in arr[1:]:
-                res = alpha * x + (1 - alpha) * res
-            return res
-
-        ema50 = calc_ema(closes, min(50, len(closes)))
-        ema200 = calc_ema(closes, min(200, len(closes)))
+        ema50_series = self.calc_ema(closes, min(50, len(closes)))
+        ema200_series = self.calc_ema(closes, min(200, len(closes)))
+        ema50 = ema50_series[-1] if ema50_series else 0.0
+        ema200 = ema200_series[-1] if ema200_series else 0.0
         curr_close = closes[-1]
 
         if curr_adx >= 26.0:

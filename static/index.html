@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="/static/charting_library/charting_library.standalone.js"></script>
-<script type="module" src="/static/chart_stream.js"></script>
+<script type="module" src="/static/chart_stream.js?v=lina1"></script>
 <style>
 :root{color-scheme:dark;--bg:#090d12;--panel:#0e141b;--panel2:#111a23;--line:#202b36;--muted:#73808e;--text:#e5edf3;--green:#00d69a;--red:#ff5e6e;--amber:#f5b84b;--cyan:#65cfff;--mono:'DM Mono',monospace;--sans:'Manrope',sans-serif}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 52% -25%,#172633 0%,transparent 58%),var(--bg);color:var(--text);font:13px var(--sans);min-height:100vh}button,select{font:inherit;color:inherit}button{cursor:pointer} .app{max-width:1720px;margin:auto;padding:0 24px 28px}.topbar{height:68px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.brand{display:flex;gap:12px;align-items:center;font-weight:800;letter-spacing:.09em}.brand-mark{width:30px;height:30px;border:1px solid #37515e;background:linear-gradient(145deg,#153347,#0c171e);display:grid;place-items:center;color:var(--green);font:15px var(--mono)}.brand small{display:block;color:var(--muted);font:9px var(--mono);letter-spacing:.16em;margin-top:3px}.top-right{display:flex;align-items:center;gap:18px;color:#a7b2bd;font:11px var(--mono)}.status{display:flex;align-items:center;gap:8px}.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 11px #00d69a88}.top-actions{display:flex;gap:8px}.btn{border:1px solid #31404c;background:#121b23;padding:9px 13px;border-radius:3px;font:11px var(--mono);transition:.18s}.btn:hover{border-color:#658092;background:#17232d}.btn.primary{border-color:#197b63;color:var(--green);background:#0c241e}.btn:disabled{opacity:.5;cursor:wait}.hero{display:flex;align-items:end;justify-content:space-between;padding:27px 0 18px}.eyebrow{font:10px var(--mono);color:var(--green);letter-spacing:.18em;text-transform:uppercase}.hero h1{font-size:24px;margin:7px 0 4px;letter-spacing:-.04em}.hero p{margin:0;color:var(--muted);font-size:12px}.meta{display:flex;gap:22px;color:var(--muted);font:10px var(--mono)}.meta b{color:var(--text);font-weight:500}.metrics{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);background:#0b1117;margin-bottom:14px}.metric{padding:14px 17px;border-right:1px solid var(--line)}.metric:last-child{border:0}.metric label{display:block;color:var(--muted);font:9px var(--mono);letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}.metric strong{font:18px var(--mono);font-weight:500}.metric .sub{font:10px var(--mono);color:var(--muted);margin-left:9px}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:14px}.panel{border:1px solid var(--line);background:linear-gradient(160deg,#0f161e,#0c1218)}.chart-panel{min-width:0}.toolbar{height:52px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 14px;gap:8px}.instrument{display:flex;align-items:center;gap:12px}.symbol-title{font:600 13px var(--mono);letter-spacing:.03em}.price{font:12px var(--mono);color:var(--green)}.change{font:10px var(--mono);color:var(--green)}.chart-controls{display:flex;align-items:center;gap:6px}.select{background:#111a22;border:1px solid #283641;border-radius:2px;padding:7px 9px;font:10px var(--mono)}.tf{border:1px solid transparent;background:transparent;color:var(--muted);padding:7px;font:10px var(--mono)}.tf.active{color:var(--text);border-color:#30414d;background:#17212a}.chart-wrap{position:relative;height:600px;padding:0}.chart-note{position:absolute;top:18px;left:18px;z-index:1;color:#8695a3;font:9px var(--mono);pointer-events:none}.overlay-controls{display:flex;gap:14px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);font:9px var(--mono);color:var(--muted);flex-wrap:wrap}.overlay-controls label{display:flex;align-items:center;gap:5px;cursor:pointer}.overlay-controls input{accent-color:var(--green)}.live-candle{margin-left:auto;color:var(--amber)}.chart-wrap{position:relative}.chart-wrap canvas{position:absolute;inset:5px 8px 2px;width:calc(100% - 16px);height:calc(100% - 7px);pointer-events:none;z-index:2}.trade-overlay{position:absolute;inset:8px 14px auto 14px;z-index:3;pointer-events:none}.trade-level{display:flex;align-items:center;gap:8px;margin:4px 0;font:9px var(--mono);text-shadow:0 1px 3px #000}.trade-level span{padding:3px 5px;background:#0c1218dd;border:1px solid currentColor}.chart-legend{display:flex;gap:17px;padding:11px 15px;border-top:1px solid var(--line);font:9px var(--mono);color:var(--muted)}.legend-item{display:flex;align-items:center;gap:6px}.legend-swatch{width:15px;height:2px;background:var(--amber)}.legend-swatch.zone{height:8px;background:#3676c744;border:1px solid #3676c7}.legend-swatch.entry{background:var(--cyan)}.legend-swatch.sl{background:var(--red)}.legend-swatch.tp{background:var(--green)}.side{display:flex;flex-direction:column;gap:14px}.side-head{padding:14px 15px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.side-head h2{font-size:11px;letter-spacing:.08em;margin:0;text-transform:uppercase}.count{color:var(--muted);font:10px var(--mono)}.signal-list{padding:5px 10px;max-height:247px;overflow:auto}.signal-empty{padding:22px 8px;color:var(--muted);font-size:11px;line-height:1.7}.signal{padding:11px 7px;border-bottom:1px solid #1c2831;cursor:pointer}.signal:hover{background:#121c24}.sig-row{display:flex;align-items:center;justify-content:space-between}.sig-pair{font:11px var(--mono);font-weight:500}.badge{font:9px var(--mono);padding:3px 6px;border:1px solid #17624f;color:var(--green);background:#0a201a}.badge.short{color:var(--red);border-color:#71343c;background:#261318}.sig-desc{font-size:10px;color:#99a5af;margin:7px 0}.sig-price{display:flex;justify-content:space-between;font:9px var(--mono);color:var(--muted)}.sig-price b{color:var(--text);font-weight:400}.watchlist{flex:1}.watch-list{padding:3px 13px 9px}.watch-row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:14px;padding:9px 2px;border-bottom:1px solid #1c2831;cursor:pointer}.watch-row:hover .watch-symbol{color:var(--cyan)}.watch-symbol{font:10px var(--mono)}.watch-price,.watch-change{font:9px var(--mono);text-align:right}.watch-change.up{color:var(--green)}.watch-change.down{color:var(--red)}.footnote{padding:11px 15px;border-top:1px solid var(--line);font:9px var(--mono);color:#667581;line-height:1.6}.disclaimer{margin-top:14px;padding:10px 13px;border-left:2px solid #715d31;background:#18160f;color:#a79b7e;font-size:10px}.toast{position:fixed;bottom:20px;left:50%;transform:translate(-50%,20px);opacity:0;transition:.2s;background:#17232d;border:1px solid #435564;padding:10px 15px;font:11px var(--mono);z-index:3}.toast.show{opacity:1;transform:translate(-50%,0)}.loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font:11px var(--mono);background:#0c1218aa;z-index:2}.hidden{display:none!important}
@@ -47,7 +47,7 @@
 <header class="topbar"><div class="brand"><div class="brand-mark">F</div><div>FUTURES DESK<small>MARKET STRUCTURE SCANNER</small></div></div><div class="top-right"><span class="status"><i class="dot"></i><span id="connection">CONNECTING</span></span><span class="clock" id="clock">--:--:-- ICT</span><div class="top-actions"><button class="btn" id="guideBtn" style="border-color:#3d5668;color:var(--cyan);background:#0d1d28;font-weight:600">📖 HƯỚNG DẪN & CHÚ THÍCH</button><button class="btn" id="refreshBtn">↻ REFRESH</button><button class="btn primary" id="scanBtn">⌕ SCAN MARKET</button></div></div></header>
 <section class="hero"><div><div class="eyebrow">BINANCE USDⓈ-M · PUBLIC MARKET DATA</div><h1>Market structure, without the noise.</h1><p>Quét setup Futures, xem cấu trúc giá và mức rủi ro trên một màn hình.</p></div><div class="meta"><span>FRAME <b id="frameLabel">15m</b></span><span>UNIVERSE <b id="universeLabel">30 PAIRS</b></span><span>LAST SCAN <b id="lastScan">--</b></span></div></section>
 <section class="metrics"><div class="metric"><label>BTC / USDT · PERP</label><strong id="btcPrice">—</strong><span class="sub" id="btcChange">—</span><span class="sub" id="btcVol">24H VOL —</span></div><div class="metric"><label>Pairs monitored</label><strong id="pairCount">—</strong><span class="sub">USDT-M contracts</span></div><div class="metric"><label>Signal Win Rate</label><strong id="winRateVal" style="color:var(--green)">--%</strong><span class="sub" id="winRateDetail">0W / 0L · Net 0.0R</span></div><div class="metric"><label>Scanner status</label><strong id="scanStatus" style="font-size:14px;color:var(--green)">READY</strong><span class="sub" id="scanEvery">5m interval</span></div></section>
-<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
+<main class="workspace"><section class="panel chart-panel"><div class="toolbar"><div class="instrument"><div><span class="symbol-title" id="chartSymbol">BTCUSDT</span><span style="color:var(--muted);font:9px var(--mono);margin-left:7px">PERPETUAL</span><span id="regimeBadge" style="margin-left:8px;font:10px var(--mono);padding:2px 6px;border-radius:2px;background:#182835;color:var(--amber);border:1px solid #31404c">RANGING</span></div><div><span class="price" id="chartPrice">—</span><span class="change" id="chartChange">—</span></div></div><div class="chart-controls"><select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch"><option>BTCUSDT</option></select><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="lina_rsi" checked> Sóng Lina RSI (Wave & Pullback)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
 <aside class="side"><section class="panel"><div class="side-head"><h2>Signal feed</h2><div class="feed-tabs" id="feedTabs"><button class="feed-tab active" data-tab="ALL">ALL</button><button class="feed-tab" data-tab="ACTIVE">OPEN</button><button class="feed-tab" data-tab="HISTORY">HISTORY</button></div></div><div class="signal-list" id="signalList"><div class="signal-empty">Chưa có setup đạt tiêu chí. Chọn <b>SCAN MARKET</b> để quét dữ liệu Futures mới nhất.</div></div><div class="footnote">Tín hiệu được theo dõi tự động theo Take Profit và Stop Loss.</div></section><section class="panel watchlist"><div class="side-head"><h2>High-volume contracts</h2><span class="count">24H QUOTE VOL</span></div><div class="watch-list" id="watchList"><div class="signal-empty">Đang tải danh sách hợp đồng…</div></div><div class="footnote">Binance USDⓈ-M · chỉ gồm hợp đồng USDT perpetual.</div></section></aside></main>
 <div class="disclaimer">RỦI RO CAO · Futures có thể khiến bạn mất toàn bộ vốn. Tín hiệu và mức Entry/SL/TP chỉ mang tính nghiên cứu; không đảm bảo lợi nhuận. Luôn tự xác minh trước khi giao dịch.</div>
 
@@ -115,7 +115,27 @@
         </div>
       </div>
 
-      <div style="font-size:11px;color:var(--amber);font-weight:700;margin-bottom:8px;letter-spacing:.06em">PHẦN 3: 3 NGUYÊN TẮC SỐNG CÒN (KHÔNG BAO GIỜ CHÁY TÀI KHOẢN)</div>
+      <div style="font-size:11px;color:var(--amber);font-weight:700;margin-bottom:8px;letter-spacing:.06em">PHẦN 3: CHỈ BÁO LINA RSI (SÓNG ĐỘNG LƯỢNG & VÙNG HỒI PULLBACK)</div>
+      <div class="guide-grid">
+        <div class="guide-box">
+          <div class="guide-item">
+            <strong>🌊 Cấu trúc sóng Lina RSI:</strong><br>
+            Kết hợp <b>RSI (14)</b> với đường <b>EMA nhanh (9)</b> và <b>WMA chậm (45)</b>.<br>
+            • <b>Sóng Tăng (Uptrend):</b> Đường xanh EMA (9) nằm trên đường đỏ WMA (45).<br>
+            • <b>Sóng Giảm (Downtrend):</b> Đường xanh EMA (9) nằm dưới đường đỏ WMA (45).
+          </div>
+        </div>
+        <div class="guide-box">
+          <div class="guide-item">
+            <strong>🎯 Vùng hồi Pullback (Nơi vào lệnh đẹp nhất):</strong><br>
+            • <b>Vùng Cầu [40 - 55]:</b> Khi đang sóng Tăng, giá hồi về vùng này rồi bật lên -> Kèo MUA (LONG) an toàn.<br>
+            • <b>Vùng Cung [45 - 60]:</b> Khi đang sóng Giảm, giá hồi về vùng này rồi rớt xuống -> Kèo BÁN (SHORT) an toàn.<br>
+            • Giúp người mới <b>tuyệt đối không mua đuổi đỉnh hoặc bán đuổi đáy</b>!
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;color:var(--amber);font-weight:700;margin-bottom:8px;letter-spacing:.06em">PHẦN 4: 3 NGUYÊN TẮC SỐNG CÒN (KHÔNG BAO GIỜ CHÁY TÀI KHOẢN)</div>
       <div class="guide-box" style="border-left:3px solid var(--amber)">
         <div class="guide-item">
           <strong>1. Luôn cài Stop Loss (SL) ngay khi vào lệnh:</strong> Tuyệt đối không bao giờ tháo SL để "gồng lỗ". Cắt lỗ sớm chỉ mất 1-2% tài khoản, gồng lỗ sẽ làm cháy sạch tiền.
@@ -133,10 +153,10 @@
 
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation} from '/static/chart_stream.js';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation} from '/static/chart_stream.js?v=lina1';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',widget:null,chartReady:false,orderLines:[],signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
+  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',widget:null,chartReady:false,orderLines:[],linaStudyId:null,signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -276,6 +296,74 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       toolbar_bg:'#0e141b',
       loading_screen:{backgroundColor:'#0c1218',foregroundColor:'#00d69a'},
       enabled_features:['study_templates','side_toolbar_in_fullscreen_mode'],
+      custom_indicators_getter: function(PineJS) {
+        return Promise.resolve([
+          {
+            name: "Lina RSI Wave",
+            metainfo: {
+              _metainfoVersion: 52,
+              id: "LinaRSI@tv-basicstudies-1",
+              description: "Lina RSI (Wave Momentum & Pullback Zones)",
+              format: { type: "price", precision: 2 },
+              is_price_study: false,
+              shortDescription: "Lina RSI",
+              is_price_study: false,
+              isCustomIndicator: true,
+              plots: [
+                { id: "plot_rsi", type: "line" },
+                { id: "plot_ema", type: "line" },
+                { id: "plot_wma", type: "line" },
+                { id: "plot_up55", type: "line" },
+                { id: "plot_low40", type: "line" },
+                { id: "plot_up60", type: "line" },
+                { id: "plot_low45", type: "line" }
+              ],
+              styles: {
+                plot_rsi: { title: "RSI (14)", histogramBase: 0 },
+                plot_ema: { title: "Fast EMA (9)", histogramBase: 0 },
+                plot_wma: { title: "Slow WMA (45)", histogramBase: 0 },
+                plot_up55: { title: "Demand 55", histogramBase: 0 },
+                plot_low40: { title: "Demand 40", histogramBase: 0 },
+                plot_up60: { title: "Supply 60", histogramBase: 0 },
+                plot_low45: { title: "Supply 45", histogramBase: 0 }
+              },
+              defaults: {
+                styles: {
+                  plot_rsi: { linestyle: 0, linewidth: 2, plottype: 0, color: "#65cfff", visible: true },
+                  plot_ema: { linestyle: 0, linewidth: 1, plottype: 0, color: "#00d69a", visible: true },
+                  plot_wma: { linestyle: 0, linewidth: 1, plottype: 0, color: "#ff5e6e", visible: true },
+                  plot_up55: { linestyle: 2, linewidth: 1, plottype: 0, color: "rgba(0, 214, 154, 0.4)", visible: true },
+                  plot_low40: { linestyle: 2, linewidth: 1, plottype: 0, color: "rgba(0, 214, 154, 0.4)", visible: true },
+                  plot_up60: { linestyle: 2, linewidth: 1, plottype: 0, color: "rgba(255, 94, 110, 0.4)", visible: true },
+                  plot_low45: { linestyle: 2, linewidth: 1, plottype: 0, color: "rgba(255, 94, 110, 0.4)", visible: true }
+                },
+                inputs: { rsi_len: 14, ema_len: 9, wma_len: 45 }
+              },
+              inputs: [
+                { id: "rsi_len", name: "RSI Length", type: "integer", defval: 14 },
+                { id: "ema_len", name: "Fast EMA Length", type: "integer", defval: 9 },
+                { id: "wma_len", name: "Slow WMA Length", type: "integer", defval: 45 }
+              ]
+            },
+            constructor: function() {
+              this.init = function(context, inputCallback) {
+                this._context = context;
+                this._input = inputCallback;
+              };
+              this.main = function(context, inputCallback) {
+                this._context = context;
+                var Std = PineJS.Std;
+                var close = Std.close(this._context);
+                var rsi = Std.rsi(close, 14, this._context);
+                var rsiVar = this._context.new_var(rsi);
+                var ema = Std.ema(rsiVar, 9, this._context);
+                var wma = Std.wma(rsiVar, 45, this._context);
+                return [rsi, ema, wma, 55, 40, 60, 45];
+              };
+            }
+          }
+        ]);
+      },
       disabled_features:['use_localstorage_for_settings'],
       overrides:{
         'paneProperties.background':'#0c1218',
@@ -296,6 +384,12 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       if(state.chartPayload){
         renderTradingViewDrawings(state.chartPayload);
         applyTimeRange(state.rangeDays||'3');
+      }
+      const linaCb = document.querySelector('input[data-overlay="lina_rsi"]');
+      if(linaCb&&linaCb.checked&&!state.linaStudyId){
+        try{
+          state.widget.chart().createStudy('Lina RSI (Wave Momentum & Pullback Zones)',false,false).then(id=>state.linaStudyId=id).catch(()=>{});
+        }catch(e){}
       }
     });
   }
@@ -346,7 +440,22 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     connectMarketWs();
   });
   $$('.feed-tab').forEach(b=>b.onclick=()=>{$$('.feed-tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.feedTab=b.dataset.tab;renderSignalList()});
-  $$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{if(state.chartPayload)renderTradingViewDrawings(state.chartPayload);}));
+  $$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{
+    if(x.dataset.overlay==='lina_rsi'){
+      if(state.widget&&state.chartReady){
+        try{
+          if(x.checked&&!state.linaStudyId){
+            state.widget.chart().createStudy('Lina RSI (Wave Momentum & Pullback Zones)',false,false).then(id=>state.linaStudyId=id);
+          }else if(!x.checked&&state.linaStudyId){
+            state.widget.chart().removeEntity(state.linaStudyId);
+            state.linaStudyId=null;
+          }
+        }catch(e){console.warn('Lina RSI toggle error:',e);}
+      }
+    }else if(state.chartPayload){
+      renderTradingViewDrawings(state.chartPayload);
+    }
+  }));
     $('#guideBtn').onclick=()=>$('#guideModal').classList.remove('hidden');
   $('#closeGuideBtn').onclick=()=>$('#guideModal').classList.add('hidden');
   $('#guideModal').onclick=(e)=>{if(e.target===$('#guideModal'))$('#guideModal').classList.add('hidden');};

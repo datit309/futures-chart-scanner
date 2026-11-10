@@ -373,3 +373,28 @@ def test_unmitigated_order_blocks_and_bos_choch_shifts():
     swings_breached = engine.find_swing_points(klines_breached, window=2)
     obs_after_breach = engine.detect_order_blocks(klines_breached, swings_breached, unmitigated_only=True)
     assert not any(ob["index"] == 6 for ob in obs_after_breach), "Breached Order Block must be filtered out when unmitigated_only=True"
+
+
+def test_lina_rsi_wave_and_pullback_detection():
+    engine = TechnicalEngine()
+    # 60 synthetic bars
+    prices = [(100 + i * 0.5, 101 + i * 0.5, 99.5 + i * 0.5, 100.8 + i * 0.5) for i in range(60)]
+    klines = create_synthetic_klines(prices)
+
+    # 1. Test WMA
+    data = [float(x) for x in range(1, 11)]
+    wma = engine.calc_wma(data, period=5)
+    assert len(wma) == len(data)
+    assert wma[-1] > data[len(data) - 5]
+
+    # 2. Test calc_lina_rsi
+    lina_res = engine.calc_lina_rsi(klines)
+    assert "rsi" in lina_res
+    assert "rsi_ema" in lina_res
+    assert "rsi_wma" in lina_res
+    assert len(lina_res["rsi"]) == len(klines)
+    assert len(lina_res["rsi_ema"]) == len(klines)
+    assert len(lina_res["rsi_wma"]) == len(klines)
+
+    # 3. Test PatternType.LINA_RSI_PULLBACK presence
+    assert hasattr(PatternType, "LINA_RSI_PULLBACK")
