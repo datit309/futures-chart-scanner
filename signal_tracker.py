@@ -274,8 +274,13 @@ class SignalTracker:
         params: List[Any] = []
 
         if status_filter:
-            query += " AND status = ?"
-            params.append(status_filter.upper())
+            normalized = status_filter.upper()
+            if normalized == "HISTORY":
+                query += " AND status IN (?, ?, ?)"
+                params.extend(["WIN", "LOSS", "EXPIRED"])
+            else:
+                query += " AND status = ?"
+                params.append(normalized)
         if symbol_filter:
             query += " AND symbol = ?"
             params.append(symbol_filter.upper())

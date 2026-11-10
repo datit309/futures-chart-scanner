@@ -336,7 +336,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         if(posShapes){
           if(posShapes.profitBox) c.createMultipointShape(posShapes.profitBox.points, posShapes.profitBox.options);
           if(posShapes.stopBox) c.createMultipointShape(posShapes.stopBox.points, posShapes.stopBox.options);
-          if(posShapes.pointerArrow) c.createMultipointShape(posShapes.pointerArrow.points, posShapes.pointerArrow.options);
+          if(posShapes.signalArrow) c.createShape(posShapes.signalArrow.point, posShapes.signalArrow.options);
           if(posShapes.entryLine) c.createMultipointShape(posShapes.entryLine.points, posShapes.entryLine.options);
           if(posShapes.tpLine) c.createMultipointShape(posShapes.tpLine.points, posShapes.tpLine.options);
           if(posShapes.slLine) c.createMultipointShape(posShapes.slLine.points, posShapes.slLine.options);
@@ -477,11 +477,23 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     });
   }
 
-  function renderSignalList(){const box=$('#signalList');const filtered=filterSignals(state.signals,state.feedTab);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
+  function renderSignalList(){const box=$('#signalList');const isHistory=state.feedTab==='HISTORY';const source=isHistory?(state.historySignals||[]):state.signals;const filtered=filterSignals(source,state.feedTab,isHistory?state.symbol:null);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>${isHistory?` cho <b>${state.symbol}</b>`:''}.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
 
   async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
 
-  async function loadSignals(){try{const r=await fetch('/api/signals?limit=60');if(!r.ok)return;const d=await r.json();state.signals=d.signals||[];state.stats=d.stats||{};const s=state.stats;if(s){const wr=s.win_rate!=null?s.win_rate+'%':'--%';$('#winRateVal').textContent=wr;$('#winRateVal').style.color=s.win_rate>=50?'var(--green)':(s.win_rate>0?'var(--red)':'var(--muted)');const pnl=s.net_pnl_r||0;$('#winRateDetail').textContent=`${s.wins||0}W / ${s.losses||0}L · Net ${pnl>=0?'+':''}${Number(pnl).toFixed(1)}R`}renderSignalList()}catch(e){console.warn('loadSignals error',e)}}
+  async function loadSignals(){try{
+    let url='/api/signals?limit=60';
+    if(state.feedTab==='HISTORY'){
+      url=`/api/signals?limit=60&status=HISTORY&symbol=${encodeURIComponent(state.symbol)}`;
+    }
+    const r=await fetch(url);if(!r.ok)return;const d=await r.json();
+    if(state.feedTab==='HISTORY'){
+      state.historySignals=d.signals||[];
+    }else{
+      state.signals=d.signals||[];
+      state.historySignals=[];
+    }
+    state.stats=d.stats||{};const s=state.stats;if(s){const wr=s.win_rate!=null?s.win_rate+'%':'--%';$('#winRateVal').textContent=wr;$('#winRateVal').style.color=s.win_rate>=50?'var(--green)':(s.win_rate>0?'var(--red)':'var(--muted)');const pnl=s.net_pnl_r||0;$('#winRateDetail').textContent=`${s.wins||0}W / ${s.losses||0}L · Net ${pnl>=0?'+':''}${Number(pnl).toFixed(1)}R`}renderSignalList()}catch(e){console.warn('loadSignals error',e)}}
 
   function renderWatchlist(){const box=$('#watchList');if(!state.symbols.length){box.innerHTML='<div class="signal-empty">Không lấy được danh sách. Thử refresh.</div>';return}box.innerHTML=state.symbols.slice(0,15).map((s,i)=>{const t=state.tickers[s]||{};const change=Number(t.priceChangePercent||0);return `<div class="watch-row" data-symbol="${s}"><span class="watch-symbol">${s.replace('USDT','')}<span style="color:var(--muted)"> / USDT</span></span><span class="watch-price">${fmt(t.lastPrice||0)}</span><span class="watch-change ${change>=0?'up':'down'}">${change>=0?'+':''}${change.toFixed(2)}% · V ${fmt(t.quoteVolume||0)}</span></div>`}).join('');$$('.watch-row').forEach(e=>e.onclick=()=>selectSymbol(e.dataset.symbol))}
 
@@ -580,7 +592,13 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}
     connectMarketWs();
   });
-  $$('.feed-tab').forEach(b=>b.onclick=()=>{$$('.feed-tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.feedTab=b.dataset.tab;renderSignalList()});
+  $$('.feed-tab').forEach(b=>b.onclick=()=>{$$('.feed-tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.feedTab=b.dataset.tab;if(state.feedTab==='HISTORY'){loadSignals()}else{renderSignalList()}});
+
+  const _origSelectSymbol=selectSymbol;
+  selectSymbol=async function(symbol){
+    await _origSelectSymbol(symbol);
+    if(state.feedTab==='HISTORY')await loadSignals();
+  };
   $$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{
     if(x.dataset.overlay==='volume'){
       if(state.widget&&state.chartReady){

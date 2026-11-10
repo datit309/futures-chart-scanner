@@ -69,6 +69,7 @@ def test_signal_tracker_crud_and_stats(tracker):
     # Filter by status
     assert len(tracker.list_signals(status_filter="OPEN")) == 1
     assert len(tracker.list_signals(status_filter="WIN")) == 0
+    assert len(tracker.list_signals(status_filter="HISTORY")) == 0
 
     # 5. Prevent duplicate signal insertion for same symbol & pattern within cooldown window
     dup_id = tracker.save_signal(sig, klines, cooldown_seconds=3600)

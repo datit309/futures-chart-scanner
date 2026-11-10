@@ -88,11 +88,19 @@ export function formatOutcomeBadge(signal) {
   return { text: 'ACTIVE', color: '#65cfff', className: 'badge-open' };
 }
 
-export function filterSignals(signals, tab = 'ALL') {
+export function filterSignals(signals, tab = 'ALL', symbol = null) {
   if (!Array.isArray(signals)) return [];
   const t = tab.toUpperCase();
+  const sUpper = symbol ? symbol.toUpperCase().trim() : null;
+
   if (t === 'ACTIVE') return signals.filter(s => (s.status || 'OPEN').toUpperCase() === 'OPEN');
-  if (t === 'HISTORY') return signals.filter(s => ['WIN', 'LOSS', 'EXPIRED'].includes((s.status || '').toUpperCase()));
+  if (t === 'HISTORY') {
+    return signals.filter(s => {
+      const isHistory = ['WIN', 'LOSS', 'EXPIRED'].includes((s.status || '').toUpperCase());
+      if (!isHistory) return false;
+      return sUpper ? (s.symbol || '').toUpperCase() === sUpper : true;
+    });
+  }
   return signals;
 }
 
@@ -213,29 +221,24 @@ export function formatPositionShape(signal, lastCandle) {
   const cLow = Number(lastCandle.low || entry);
   const spread = Math.max(cHigh - cLow, entry * 0.002);
 
-  const p1 = {
-    time: tStart - timeStep,
-    price: isShort ? (cHigh + spread * 1.6) : (cLow - spread * 1.6)
-  };
-  const p2 = {
-    time: tStart,
-    price: isShort ? (cHigh + spread * 0.2) : (cLow - spread * 0.2)
-  };
-
+  // Old-style marker arrow (arrow_up / arrow_down) placed clearly outside the candle body
   const arrowColor = isShort ? '#ff4d4f' : '#00d69a';
+  const arrowPrice = isShort ? (cHigh + spread * 1.8) : (cLow - spread * 1.8);
   const entryText = isShort
     ? `🔴 VÀO SHORT  ▼  ENTRY: ${entry}`
     : `🟢 VÀO LONG  ▲  ENTRY: ${entry}`;
 
   return {
-    pointerArrow: {
-      points: [p1, p2],
+    signalArrow: {
+      point: { time: tStart, price: arrowPrice },
       options: {
-        shape: 'arrow',
+        shape: isShort ? 'arrow_down' : 'arrow_up',
+        text: isShort ? '🔴 VÀO LỆNH SHORT' : '🟢 VÀO LỆNH LONG',
         lock: true,
         overrides: {
-          linecolor: arrowColor,
-          linewidth: 3,
+          color: arrowColor,
+          fontsize: 13,
+          bold: true,
         }
       }
     },

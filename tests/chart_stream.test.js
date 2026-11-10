@@ -115,15 +115,17 @@ test('formatOutcomeBadge returns correct styling and text for WIN, LOSS, and OPE
   });
 });
 
-test('filterSignals partitions signals by tab filter', () => {
+test('filterSignals partitions signals by tab filter and optional symbol', () => {
   const sigs = [
-    {id: 1, status: 'OPEN'},
-    {id: 2, status: 'WIN'},
-    {id: 3, status: 'LOSS'},
+    {id: 1, status: 'OPEN', symbol: 'BTCUSDT'},
+    {id: 2, status: 'WIN', symbol: 'BTCUSDT'},
+    {id: 3, status: 'LOSS', symbol: 'ETHUSDT'},
   ];
   assert.equal(filterSignals(sigs, 'ALL').length, 3);
-  assert.deepEqual(filterSignals(sigs, 'ACTIVE'), [{id: 1, status: 'OPEN'}]);
-  assert.deepEqual(filterSignals(sigs, 'HISTORY'), [{id: 2, status: 'WIN'}, {id: 3, status: 'LOSS'}]);
+  assert.deepEqual(filterSignals(sigs, 'ACTIVE'), [{id: 1, status: 'OPEN', symbol: 'BTCUSDT'}]);
+  assert.deepEqual(filterSignals(sigs, 'HISTORY'), [{id: 2, status: 'WIN', symbol: 'BTCUSDT'}, {id: 3, status: 'LOSS', symbol: 'ETHUSDT'}]);
+  assert.deepEqual(filterSignals(sigs, 'HISTORY', 'BTCUSDT'), [{id: 2, status: 'WIN', symbol: 'BTCUSDT'}]);
+  assert.deepEqual(filterSignals(sigs, 'HISTORY', 'ETHUSDT'), [{id: 3, status: 'LOSS', symbol: 'ETHUSDT'}]);
 });
 
 test('formatCandleCountdown computes remaining mm:ss until candle close', () => {
@@ -251,8 +253,9 @@ test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP
   const longSig = { signal_type: 'LONG', entry_price: 80000, stop_loss: 79000, tp2: 82500 };
   const lastCandle = { time: 1700000, high: 80200, low: 79800 };
   const shapes = formatPositionShape(longSig, lastCandle);
-  assert.equal(shapes.pointerArrow.options.shape, 'arrow');
-  assert.equal(shapes.pointerArrow.options.overrides.linecolor, '#00d69a');
+  assert.equal(shapes.signalArrow.options.shape, 'arrow_up');
+  assert.equal(shapes.signalArrow.options.overrides.color, '#00d69a');
+  assert.ok(shapes.signalArrow.point.price < 79800, 'LONG arrow must sit below candle low');
   assert.equal(shapes.entryLine.options.overrides.linecolor, '#ffffff');
   assert.ok(shapes.entryLine.options.text.includes('VÀO LONG'));
   assert.equal(shapes.tpLine.options.overrides.linecolor, '#00d69a');
@@ -262,8 +265,9 @@ test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP
 
   const shortSig = { signal_type: 'SHORT', entry_price: 80000, stop_loss: 81000, tp2: 77500 };
   const shortShapes = formatPositionShape(shortSig, lastCandle);
-  assert.equal(shortShapes.pointerArrow.options.shape, 'arrow');
-  assert.equal(shortShapes.pointerArrow.options.overrides.linecolor, '#ff4d4f');
+  assert.equal(shortShapes.signalArrow.options.shape, 'arrow_down');
+  assert.equal(shortShapes.signalArrow.options.overrides.color, '#ff4d4f');
+  assert.ok(shortShapes.signalArrow.point.price > 80200, 'SHORT arrow must sit above candle high');
   assert.ok(shortShapes.entryLine.options.text.includes('VÀO SHORT'));
   assert.equal(shortShapes.slLine.options.overrides.linecolor, '#ff4d4f');
   assert.equal(shortShapes.tpLine.options.overrides.linecolor, '#00d69a');
