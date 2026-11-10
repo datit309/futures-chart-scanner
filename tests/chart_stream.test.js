@@ -273,30 +273,31 @@ test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP
   assert.equal(shortShapes.tpLine.options.overrides.linecolor, '#00d69a');
 });
 
-test('formatHistoryTrades builds entry-to-exit paths colored by outcome', () => {
+test('formatHistoryTrades builds single outcome arrows at each entry position', () => {
   const trades = [
-    { symbol: 'BTCUSDT', signal_type: 'LONG', status: 'WIN', entry_price: 80000, exit_price: 82000, created_at: 1700000000, exit_time: 1700003600 },
-    { symbol: 'BTCUSDT', signal_type: 'SHORT', status: 'LOSS', entry_price: 81000, exit_price: 82500, created_at: 1700007200, exit_time: 1700010800 },
+    { id: 1, symbol: 'BTCUSDT', signal_type: 'LONG', status: 'WIN', entry_price: 80000, sl_pct: 0.005, pnl_r: 2.2, created_at: 1700000000 },
+    { id: 2, symbol: 'BTCUSDT', signal_type: 'SHORT', status: 'LOSS', entry_price: 81000, sl_pct: 0.008, pnl_r: -1, created_at: 1700007200 },
   ];
   const shapes = formatHistoryTrades(trades);
-  assert.equal(shapes.length, 4);
+  assert.equal(shapes.length, 2);
 
-  assert.equal(shapes[0].options.shape, 'trend_line');
-  assert.equal(shapes[0].points[0].price, 80000);
-  assert.equal(shapes[0].points[1].price, 82000);
-  assert.equal(shapes[0].options.overrides.linecolor, '#00d69a');
+  assert.equal(shapes[0].options.shape, 'arrow_up');
+  assert.equal(shapes[0].options.text, 'WIN +2.2R');
+  assert.equal(shapes[0].options.overrides.color, '#00d69a');
+  assert.equal(shapes[0].point.time, 1700000000);
+  assert.ok(shapes[0].point.price < 80000, 'LONG marker must sit below entry');
 
-  assert.equal(shapes[2].points[0].price, 81000);
-  assert.equal(shapes[2].points[1].price, 82500);
-  assert.equal(shapes[2].options.overrides.linecolor, '#ff4d4f');
+  assert.equal(shapes[1].options.shape, 'arrow_down');
+  assert.equal(shapes[1].options.text, 'LOSS -1.0R');
+  assert.equal(shapes[1].options.overrides.color, '#ff4d4f');
+  assert.ok(shapes[1].point.price > 81000, 'SHORT marker must sit above entry');
 });
 
 test('formatHistoryTrades skips incomplete or open trades', () => {
   const trades = [
     { status: 'OPEN', entry_price: 100, created_at: 1700000000 },
-    { status: 'WIN', entry_price: 100, created_at: 1700000000 },
-    { status: 'WIN', entry_price: 100, exit_price: 110, created_at: 1700000000 },
-    { status: 'LOSS', entry_price: 100, exit_price: 90, exit_time: 1700003600 },
+    { status: 'WIN', created_at: 1700000000 },
+    { status: 'LOSS', entry_price: 100 },
   ];
   const shapes = formatHistoryTrades(trades);
   assert.equal(shapes.length, 0);

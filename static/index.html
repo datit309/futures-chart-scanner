@@ -320,10 +320,10 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         }
       }
 
-      // 3b. Full closed-trade history for the selected symbol (entry -> exit paths)
+      // 3b. Closed-trade history for the selected symbol (outcome arrows at entry positions)
       if(o.history&&state.historySignals?.length){
         formatHistoryTrades(state.historySignals).forEach(sh=>{
-          c.createMultipointShape(sh.points,sh.options);
+          c.createShape(sh.point,sh.options);
         });
       }
 

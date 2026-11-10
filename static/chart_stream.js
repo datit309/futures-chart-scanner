@@ -94,7 +94,7 @@ const HISTORY_TRADE_COLORS = {
   EXPIRED: '#788795',
 };
 
-export function formatHistoryTrades(signals, limit = 50) {
+export function formatHistoryTrades(signals, limit = 60) {
   if (!Array.isArray(signals)) return [];
   const shapes = [];
   const trades = signals
@@ -102,62 +102,37 @@ export function formatHistoryTrades(signals, limit = 50) {
       const status = (s.status || '').toUpperCase();
       if (!['WIN', 'LOSS', 'EXPIRED'].includes(status)) return false;
       const entryTime = Number(s.created_at);
-      const exitTime = Number(s.exit_time);
       const entry = Number(s.entry_price);
-      const exit = Number(s.exit_price);
-      if (!Number.isFinite(entryTime) || !Number.isFinite(exitTime)) return false;
-      if (!Number.isFinite(entry) || entry <= 0) return false;
-      if (!Number.isFinite(exit) || exit <= 0) return false;
-      return exitTime > entryTime;
+      return Number.isFinite(entryTime) && Number.isFinite(entry) && entry > 0;
     })
     .slice(-limit);
 
-  const barSeconds = 900;
   for (const t of trades) {
     const status = (t.status || '').toUpperCase();
     const color = HISTORY_TRADE_COLORS[status] || '#788795';
+    const isShort = (t.signal_type || '').toUpperCase() === 'SHORT';
     const entryTime = Math.floor(Number(t.created_at));
-    const exitTime = Math.floor(Number(t.exit_time));
     const entry = Number(t.entry_price);
-    const exit = Number(t.exit_price);
+    const pnlR = Number(t.pnl_r || 0);
+    const riskOffset = Math.abs(Number(t.sl_pct || 0)) * entry || entry * 0.002;
+
+    // Offset marker outside the entry price so the candle body never hides it
+    const markerPrice = isShort ? (entry + riskOffset) : (entry - riskOffset);
+    const outcomeLabel = status === 'WIN' ? 'WIN' : status === 'LOSS' ? 'LOSS' : 'EXPIRED';
 
     shapes.push({
-      key: `path-${t.id || entryTime}-${entry}`,
-      points: [
-        { time: entryTime, price: entry },
-        { time: exitTime, price: exit },
-      ],
+      key: `hist-${t.id || entryTime}-${entry}`,
+      point: { time: entryTime, price: markerPrice },
       options: {
-        shape: 'trend_line',
+        shape: isShort ? 'arrow_down' : 'arrow_up',
+        text: `${outcomeLabel} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`,
         lock: true,
         disableSelection: false,
         overrides: {
-          linecolor: color,
-          linewidth: 1,
-          linestyle: 0,
-          showLabel: false,
-        }
-      }
-    });
-
-    shapes.push({
-      key: `exit-${t.id || exitTime}-${exit}`,
-      points: [
-        { time: exitTime - barSeconds * 3, price: exit },
-        { time: exitTime + barSeconds * 3, price: exit },
-      ],
-      options: {
-        shape: 'trend_line',
-        text: `${status === 'WIN' ? 'WIN' : status === 'LOSS' ? 'LOSS' : 'EXPIRED'} ${Number(t.pnl_r || 0) >= 0 ? '+' : ''}${Number(t.pnl_r || 0).toFixed(1)}R`,
-        lock: true,
-        disableSelection: false,
-        overrides: {
-          linecolor: color,
-          linewidth: 2,
-          linestyle: 2,
+          color,
           textcolor: color,
-          fontsize: 9,
-          showLabel: true,
+          fontsize: 10,
+          bold: true,
         }
       }
     });
