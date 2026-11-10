@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -273,8 +273,36 @@ test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP
   assert.equal(shortShapes.tpLine.options.overrides.linecolor, '#00d69a');
 });
 
-test('formatSignalPlainExplanation translates trading setup into simple Vietnamese', () => {
-  const longOB = { signal_type: 'LONG', pattern: 'SMC_ORDER_BLOCK_RETEST' };
+test('formatHistoryTrades builds entry-to-exit paths colored by outcome', () => {
+  const trades = [
+    { symbol: 'BTCUSDT', signal_type: 'LONG', status: 'WIN', entry_price: 80000, exit_price: 82000, created_at: 1700000000, exit_time: 1700003600 },
+    { symbol: 'BTCUSDT', signal_type: 'SHORT', status: 'LOSS', entry_price: 81000, exit_price: 82500, created_at: 1700007200, exit_time: 1700010800 },
+  ];
+  const shapes = formatHistoryTrades(trades);
+  assert.equal(shapes.length, 4);
+
+  assert.equal(shapes[0].options.shape, 'trend_line');
+  assert.equal(shapes[0].points[0].price, 80000);
+  assert.equal(shapes[0].points[1].price, 82000);
+  assert.equal(shapes[0].options.overrides.linecolor, '#00d69a');
+
+  assert.equal(shapes[2].points[0].price, 81000);
+  assert.equal(shapes[2].points[1].price, 82500);
+  assert.equal(shapes[2].options.overrides.linecolor, '#ff4d4f');
+});
+
+test('formatHistoryTrades skips incomplete or open trades', () => {
+  const trades = [
+    { status: 'OPEN', entry_price: 100, created_at: 1700000000 },
+    { status: 'WIN', entry_price: 100, created_at: 1700000000 },
+    { status: 'WIN', entry_price: 100, exit_price: 110, created_at: 1700000000 },
+    { status: 'LOSS', entry_price: 100, exit_price: 90, exit_time: 1700003600 },
+  ];
+  const shapes = formatHistoryTrades(trades);
+  assert.equal(shapes.length, 0);
+});
+
+test('formatSignalPlainExplanation translates trading setup into simple Vietnamese', () => {  const longOB = { signal_type: 'LONG', pattern: 'SMC_ORDER_BLOCK_RETEST' };
   const exp1 = formatSignalPlainExplanation(longOB);
   assert.ok(exp1.includes('Đánh LÊN (LONG)'));
   assert.ok(exp1.includes('gom hàng'));

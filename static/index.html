@@ -121,7 +121,7 @@
     <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
   </div>
   <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
-</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-cheat-sheet">
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-cheat-sheet">
   <div class="cheat-head">
     <div class="cheat-title">
       <span>📚 BẢNG CHÚ THÍCH KÝ HIỆU (DÀNH CHO NGƯỜI MỚI CHƯA BIẾT TRADE)</span>
@@ -255,10 +255,10 @@
 
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols} from '/static/chart_stream.js?v=lina1';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades} from '/static/chart_stream.js?v=lina1';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
+  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -318,6 +318,13 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
           const s=formatTrendlineShape(mainLine);
           c.createMultipointShape(s.points,s.options);
         }
+      }
+
+      // 3b. Full closed-trade history for the selected symbol (entry -> exit paths)
+      if(o.history&&state.historySignals?.length){
+        formatHistoryTrades(state.historySignals).forEach(sh=>{
+          c.createMultipointShape(sh.points,sh.options);
+        });
       }
 
       // 4. Signal Trade Visuals (Pointer Arrow, Entry, SL, TP, and Profit/Stop Boxes)
@@ -481,6 +488,14 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
 
+  async function loadHistorySignals(){try{
+    const r=await fetch(`/api/signals?limit=60&status=HISTORY&symbol=${encodeURIComponent(state.symbol)}`);
+    if(!r.ok)return;
+    const d=await r.json();
+    state.historySignals=d.signals||[];
+    if(state.chartPayload)renderTradingViewDrawings(state.chartPayload);
+  }catch(e){console.warn('loadHistorySignals error',e)}}
+
   async function loadSignals(){try{
     let url='/api/signals?limit=60';
     if(state.feedTab==='HISTORY'){
@@ -491,7 +506,6 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       state.historySignals=d.signals||[];
     }else{
       state.signals=d.signals||[];
-      state.historySignals=[];
     }
     state.stats=d.stats||{};const s=state.stats;if(s){const wr=s.win_rate!=null?s.win_rate+'%':'--%';$('#winRateVal').textContent=wr;$('#winRateVal').style.color=s.win_rate>=50?'var(--green)':(s.win_rate>0?'var(--red)':'var(--muted)');const pnl=s.net_pnl_r||0;$('#winRateDetail').textContent=`${s.wins||0}W / ${s.losses||0}L · Net ${pnl>=0?'+':''}${Number(pnl).toFixed(1)}R`}renderSignalList()}catch(e){console.warn('loadSignals error',e)}}
 
@@ -515,7 +529,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   function connectMarketWs(){if(state.marketReconnectTimer){clearTimeout(state.marketReconnectTimer);state.marketReconnectTimer=null}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close()}const generation=(state.marketGeneration||0)+1;state.marketGeneration=generation;state.marketReconnectAttempt=0;const url=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/market?symbol=${encodeURIComponent(state.symbol)}&timeframe=${encodeURIComponent(state.timeframe)}`;state.lastTick=0;state.connectedAt=Date.now();state.marketWs=new WebSocket(url);setStreamStatus('connecting');state.marketWs.onopen=()=>{if(generation===state.marketGeneration){state.connectedAt=Date.now();setStreamStatus('connected')}};state.marketWs.onmessage=async e=>{if(generation!==state.marketGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='status'){setStreamStatus(msg.state);if(msg.state==='reconnecting'&&!state.recovering){state.recovering=true;await loadChart();state.recovering=false}}else if(msg.type==='tick'&&msg.symbol===state.symbol){applyTick(msg)}else if(msg.type==='kline'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){applyKline(msg)}else if(msg.type==='structure'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){state.chartPayload={...state.chartPayload,...msg};renderTradingViewDrawings(msg);}}catch(err){console.error('Market stream message error',err)}};state.marketWs.onclose=()=>{if(generation!==state.marketGeneration)return;setStreamStatus('reconnecting');if(!state.marketReconnectTimer){const attempt=++state.marketReconnectAttempt;const delay=clientReconnectDelay(attempt);state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;await loadChart();connectMarketWs()},delay)}};state.marketWs.onerror=()=>{if(generation===state.marketGeneration)setStreamStatus('error')}}
 
-  function connectWs(){try{state.ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/stream`);state.ws.onopen=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('connecting')};state.ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='INIT_STATE'||m.type==='SCAN_COMPLETE'||m.type==='SIGNAL_OUTCOME'){loadSignals();loadStatus()}if(m.type==='NEW_SIGNAL'){const s=m.data;toast(`Kèo mới · ${s.symbol} ${s.signal_type}`);loadSignals()}};state.ws.onclose=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('reconnecting');setTimeout(connectWs,3000)};state.ws.onerror=()=>state.ws.close()}catch{}}
+  function connectWs(){try{state.ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/stream`);state.ws.onopen=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('connecting')};state.ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='INIT_STATE'||m.type==='SCAN_COMPLETE'||m.type==='SIGNAL_OUTCOME'){loadSignals();loadStatus();loadHistorySignals()}if(m.type==='NEW_SIGNAL'){const s=m.data;toast(`Kèo mới · ${s.symbol} ${s.signal_type}`);loadSignals()}};state.ws.onclose=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('reconnecting');setTimeout(connectWs,3000)};state.ws.onerror=()=>state.ws.close()}catch{}}
 
   $('#symbolPickerBtn').onclick = (e) => {
     e.stopPropagation();
@@ -597,6 +611,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
   const _origSelectSymbol=selectSymbol;
   selectSymbol=async function(symbol){
     await _origSelectSymbol(symbol);
+    await loadHistorySignals();
     if(state.feedTab==='HISTORY')await loadSignals();
   };
   $$('.overlay-controls input').forEach(x=>x.addEventListener('change',()=>{
@@ -620,12 +635,12 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
   const cheatBtn=$('#cheatSheetDetailBtn');if(cheatBtn)cheatBtn.onclick=()=>$('#guideModal').classList.remove('hidden');
   $('#closeGuideBtn').onclick=()=>$('#guideModal').classList.add('hidden');
   $('#guideModal').onclick=(e)=>{if(e.target===$('#guideModal'))$('#guideModal').classList.add('hidden');};
-  $('#scanBtn').onclick=scan;$('#refreshBtn').onclick=async()=>{await loadSymbols();await loadStatus();await loadSignals();await loadChart();toast('Market data refreshed')};
+  $('#scanBtn').onclick=scan;$('#refreshBtn').onclick=async()=>{await loadSymbols();await loadStatus();await loadSignals();await loadHistorySignals();await loadChart();toast('Market data refreshed')};
 
   initTradingView();
   loadSymbols().then(()=>loadChart()).then(connectMarketWs);
-  loadStatus();loadSignals();connectWs();
-  setInterval(loadStatus,15000);setInterval(loadSignals,20000);
+  loadStatus();loadSignals();loadHistorySignals();connectWs();
+  setInterval(loadStatus,15000);setInterval(loadSignals,20000);setInterval(loadHistorySignals,60000);
   setInterval(()=>{if(state.viewingHistorical)return;const basis=state.lastTick||state.connectedAt;if(basis&&Date.now()-basis>15000){$('#lastUpdateAge').textContent=`STALE ${Math.floor((Date.now()-basis)/1000)}s`;setStreamStatus('stale')}else if(basis&&state.connectedAt&&!state.lastTick){$('#lastUpdateAge').textContent=`CONNECTED ${Math.floor((Date.now()-basis)/1000)}s · WAITING FOR TICK`}},3000);
 })();
 </script>

@@ -88,8 +88,85 @@ export function formatOutcomeBadge(signal) {
   return { text: 'ACTIVE', color: '#65cfff', className: 'badge-open' };
 }
 
-export function filterSignals(signals, tab = 'ALL', symbol = null) {
+const HISTORY_TRADE_COLORS = {
+  WIN: '#00d69a',
+  LOSS: '#ff4d4f',
+  EXPIRED: '#788795',
+};
+
+export function formatHistoryTrades(signals, limit = 50) {
   if (!Array.isArray(signals)) return [];
+  const shapes = [];
+  const trades = signals
+    .filter(s => {
+      const status = (s.status || '').toUpperCase();
+      if (!['WIN', 'LOSS', 'EXPIRED'].includes(status)) return false;
+      const entryTime = Number(s.created_at);
+      const exitTime = Number(s.exit_time);
+      const entry = Number(s.entry_price);
+      const exit = Number(s.exit_price);
+      if (!Number.isFinite(entryTime) || !Number.isFinite(exitTime)) return false;
+      if (!Number.isFinite(entry) || entry <= 0) return false;
+      if (!Number.isFinite(exit) || exit <= 0) return false;
+      return exitTime > entryTime;
+    })
+    .slice(-limit);
+
+  const barSeconds = 900;
+  for (const t of trades) {
+    const status = (t.status || '').toUpperCase();
+    const color = HISTORY_TRADE_COLORS[status] || '#788795';
+    const entryTime = Math.floor(Number(t.created_at));
+    const exitTime = Math.floor(Number(t.exit_time));
+    const entry = Number(t.entry_price);
+    const exit = Number(t.exit_price);
+
+    shapes.push({
+      key: `path-${t.id || entryTime}-${entry}`,
+      points: [
+        { time: entryTime, price: entry },
+        { time: exitTime, price: exit },
+      ],
+      options: {
+        shape: 'trend_line',
+        lock: true,
+        disableSelection: false,
+        overrides: {
+          linecolor: color,
+          linewidth: 1,
+          linestyle: 0,
+          showLabel: false,
+        }
+      }
+    });
+
+    shapes.push({
+      key: `exit-${t.id || exitTime}-${exit}`,
+      points: [
+        { time: exitTime - barSeconds * 3, price: exit },
+        { time: exitTime + barSeconds * 3, price: exit },
+      ],
+      options: {
+        shape: 'trend_line',
+        text: `${status === 'WIN' ? 'WIN' : status === 'LOSS' ? 'LOSS' : 'EXPIRED'} ${Number(t.pnl_r || 0) >= 0 ? '+' : ''}${Number(t.pnl_r || 0).toFixed(1)}R`,
+        lock: true,
+        disableSelection: false,
+        overrides: {
+          linecolor: color,
+          linewidth: 2,
+          linestyle: 2,
+          textcolor: color,
+          fontsize: 9,
+          showLabel: true,
+        }
+      }
+    });
+  }
+
+  return shapes;
+}
+
+export function filterSignals(signals, tab = 'ALL', symbol = null) {  if (!Array.isArray(signals)) return [];
   const t = tab.toUpperCase();
   const sUpper = symbol ? symbol.toUpperCase().trim() : null;
 
@@ -463,4 +540,4 @@ export function filterSymbols(symbols, query, limit = 50) {
   return [...prefixMatches, ...substringMatches].slice(0, limit);
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades};
