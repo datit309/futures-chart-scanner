@@ -477,73 +477,7 @@ class TechnicalEngine:
                                 tp2=round(tp2, 4)
                             ))
 
-        # 3. Lina RSI Wave Pullback Setup
-        if not signals and len(klines) >= 50:
-            lina = self.calc_lina_rsi(klines)
-            rsi = lina["rsi"]
-            rsi_ema = lina["rsi_ema"]
-            rsi_wma = lina["rsi_wma"]
-            curr_r = rsi[-1]
-            prev_r = rsi[-2]
-            curr_e = rsi_ema[-1]
-            prev_e = rsi_ema[-2]
-            curr_w = rsi_wma[-1]
-
-            # Bullish Wave: Fast EMA > Slow WMA, RSI dipped in Demand Pullback Zone [40, 55], turns up
-            if curr_e > curr_w and any(40.0 <= rsi[k] <= 55.0 for k in range(-5, -1)):
-                if prev_r <= prev_e and curr_r > curr_e:
-                    recent_low = min(float(k["low"]) for k in klines[-5:])
-                    sl = recent_low - curr_atr * 0.3
-                    risk = curr_price - sl
-                    if risk > 0 and (risk / curr_price) < 0.035:
-                        tp1 = curr_price + risk * 1.5
-                        tp2 = curr_price + risk * 2.5
-                        signals.append(MarketSignal(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            signal_type="LONG",
-                            pattern=PatternType.LINA_RSI_PULLBACK,
-                            entry_price=curr_price,
-                            stop_loss=sl,
-                            take_profit=tp2,
-                            risk_reward=2.5,
-                            description="Lina RSI Bullish Wave Pullback (Dipped in 40-55 Demand Band & Bounced)",
-                            trendlines=trendlines[:1],
-                            sr_zones=sr_zones,
-                            fvgs=fvgs[-3:] if fvgs else [],
-                            regime=regime,
-                            tp1=round(tp1, 4),
-                            tp2=round(tp2, 4)
-                        ))
-
-            # Bearish Wave: Fast EMA < Slow WMA, RSI rallied in Supply Pullback Zone [45, 60], turns down
-            elif curr_e < curr_w and any(45.0 <= rsi[k] <= 60.0 for k in range(-5, -1)):
-                if prev_r >= prev_e and curr_r < curr_e:
-                    recent_high = max(float(k["high"]) for k in klines[-5:])
-                    sl = recent_high + curr_atr * 0.3
-                    risk = sl - curr_price
-                    if risk > 0 and (risk / curr_price) < 0.035:
-                        tp1 = curr_price - risk * 1.5
-                        tp2 = curr_price - risk * 2.5
-                        signals.append(MarketSignal(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            signal_type="SHORT",
-                            pattern=PatternType.LINA_RSI_PULLBACK,
-                            entry_price=curr_price,
-                            stop_loss=sl,
-                            take_profit=tp2,
-                            risk_reward=2.5,
-                            description="Lina RSI Bearish Wave Pullback (Rallied in 45-60 Supply Band & Rejected)",
-                            trendlines=trendlines[:1],
-                            sr_zones=sr_zones,
-                            fvgs=fvgs[-3:] if fvgs else [],
-                            regime=regime,
-                            tp1=round(tp1, 4),
-                            tp2=round(tp2, 4)
-                        ))
-
-        # 4. If no regime signal, check for Trendline Breakout
+        # 3. If no regime signal, check for Trendline Breakout
         if not signals:
             for tl in trendlines:
                 line_val_latest = tl.value_at(len(klines) - 1)
