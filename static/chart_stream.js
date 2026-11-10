@@ -278,7 +278,7 @@ export function createTradingViewDatafeed(fetchChartFn, onRealtimeSubscription =
           high: parseFloat(k.high),
           low: parseFloat(k.low),
           close: parseFloat(k.close),
-          volume: parseFloat(k.volume || 100),
+          volume: parseFloat(k.volume || 0),
         }));
         bars.sort((a, b) => a.time - b.time);
         onHistory(bars, { noData: false });

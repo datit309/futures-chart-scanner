@@ -404,7 +404,8 @@ async def handle_api_chart(request: web.Request) -> web.Response:
             "open": k["open"],
             "high": k["high"],
             "low": k["low"],
-            "close": k["close"]
+            "close": k["close"],
+            "volume": float(k.get("volume", 0.0))
         })
         is_bull = k["close"] >= k["open"]
         tv_volumes.append({
