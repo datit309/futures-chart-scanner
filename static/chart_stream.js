@@ -171,8 +171,8 @@ export function formatStructureBreakShape(item) {
   const isBOS = item.type === 'BOS';
   const isBull = !!item.is_bullish;
   const arrow = isBull ? '▲' : '▼';
-  const action = isBull ? 'TĂNG' : 'GIẢM';
-  const textLabel = isBOS ? `BOS  ${arrow}  ${action}` : `CHoCH  ${arrow}  ${action}`;
+  const role = isBOS ? (isBull ? 'TIẾP DIỄN TĂNG' : 'TIẾP DIỄN GIẢM') : (isBull ? 'ĐẢO CHIỀU TĂNG' : 'ĐẢO CHIỀU GIẢM');
+  const textLabel = isBOS ? `BOS  ${arrow}  ${role}` : `CHoCH  ${arrow}  ${role}`;
   return {
     points: [
       { time: item.time_start, price: item.price },
@@ -188,7 +188,7 @@ export function formatStructureBreakShape(item) {
         linewidth: isBOS ? 1 : 2,
         linestyle: 2, // dashed
         textcolor: isBOS ? '#e2e8f0' : '#fbbf24',
-        fontsize: 12,
+        fontsize: 11,
         bold: true,
         showLabel: true,
       }

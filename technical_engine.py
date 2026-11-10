@@ -610,8 +610,17 @@ class TechnicalEngine:
                 "break_index": i
             })
 
-        # Return the most recent 6 confirmed structure breaks across the chart
-        return shifts[-6:]
+        # Filter to active trend structure: start from the CHoCH that established current active trend
+        if shifts:
+            active_is_bull = shifts[-1]["is_bullish"]
+            last_choch_idx = 0
+            for idx in range(len(shifts) - 1, -1, -1):
+                if shifts[idx]["type"] == "CHOCH" and shifts[idx]["is_bullish"] == active_is_bull:
+                    last_choch_idx = idx
+                    break
+            active_shifts = shifts[last_choch_idx:]
+            return active_shifts[-6:] if len(active_shifts) >= 2 else shifts[-2:]
+        return []
 
     def detect_order_blocks(self, klines: List[Dict[str, Any]], swings: List[SwingPoint], unmitigated_only: bool = True) -> List[Dict[str, Any]]:
         """
