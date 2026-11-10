@@ -249,10 +249,12 @@ test('formatStructureBreakShape formats BOS and CHOCH dashed line descriptors', 
 
 test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP and boxes', () => {
   const longSig = { signal_type: 'LONG', entry_price: 80000, stop_loss: 79000, tp2: 82500 };
-  const lastCandle = { time: 1700000 };
+  const lastCandle = { time: 1700000, high: 80200, low: 79800 };
   const shapes = formatPositionShape(longSig, lastCandle);
-  assert.equal(shapes.arrow.options.shape, 'arrow_up');
+  assert.equal(shapes.pointerArrow.options.shape, 'arrow');
+  assert.equal(shapes.pointerArrow.options.overrides.linecolor, '#00d69a');
   assert.equal(shapes.entryLine.options.overrides.linecolor, '#ffffff');
+  assert.ok(shapes.entryLine.options.text.includes('VÀO LONG'));
   assert.equal(shapes.tpLine.options.overrides.linecolor, '#00d69a');
   assert.equal(shapes.slLine.options.overrides.linecolor, '#ff4d4f');
   assert.ok(shapes.tpLine.options.text.includes('TP'));
@@ -260,7 +262,9 @@ test('formatPositionShape creates comprehensive signal shapes with arrow, SL, TP
 
   const shortSig = { signal_type: 'SHORT', entry_price: 80000, stop_loss: 81000, tp2: 77500 };
   const shortShapes = formatPositionShape(shortSig, lastCandle);
-  assert.equal(shortShapes.arrow.options.shape, 'arrow_down');
+  assert.equal(shortShapes.pointerArrow.options.shape, 'arrow');
+  assert.equal(shortShapes.pointerArrow.options.overrides.linecolor, '#ff4d4f');
+  assert.ok(shortShapes.entryLine.options.text.includes('VÀO SHORT'));
   assert.equal(shortShapes.slLine.options.overrides.linecolor, '#ff4d4f');
   assert.equal(shortShapes.tpLine.options.overrides.linecolor, '#00d69a');
 });

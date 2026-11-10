@@ -209,16 +209,33 @@ export function formatPositionShape(signal, lastCandle) {
   const tpDiff = ((tp - entry) / entry * 100).toFixed(2);
   const slDiff = ((sl - entry) / entry * 100).toFixed(2);
 
+  const cHigh = Number(lastCandle.high || entry);
+  const cLow = Number(lastCandle.low || entry);
+  const spread = Math.max(cHigh - cLow, entry * 0.002);
+
+  const p1 = {
+    time: tStart - timeStep,
+    price: isShort ? (cHigh + spread * 1.6) : (cLow - spread * 1.6)
+  };
+  const p2 = {
+    time: tStart,
+    price: isShort ? (cHigh + spread * 0.2) : (cLow - spread * 0.2)
+  };
+
+  const arrowColor = isShort ? '#ff4d4f' : '#00d69a';
+  const entryText = isShort
+    ? `🔴 VÀO SHORT  ▼  ENTRY: ${entry}`
+    : `🟢 VÀO LONG  ▲  ENTRY: ${entry}`;
+
   return {
-    arrow: {
-      point: { time: tStart, price: entry },
+    pointerArrow: {
+      points: [p1, p2],
       options: {
-        shape: isShort ? 'arrow_down' : 'arrow_up',
-        text: isShort ? '🔴 VÀO SHORT' : '🟢 VÀO LONG',
+        shape: 'arrow',
+        lock: true,
         overrides: {
-          color: isShort ? '#ff4d4f' : '#00d69a',
-          fontsize: 12,
-          bold: true,
+          linecolor: arrowColor,
+          linewidth: 3,
         }
       }
     },
@@ -226,14 +243,14 @@ export function formatPositionShape(signal, lastCandle) {
       points: [{ time: tStart, price: entry }, { time: tEnd, price: entry }],
       options: {
         shape: 'trend_line',
-        text: `ENTRY  ${entry}  (GIÁ VÀO)`,
+        text: entryText,
         lock: true,
         overrides: {
           linecolor: '#ffffff',
           linewidth: 2,
           linestyle: 0,
           textcolor: '#ffffff',
-          fontsize: 11,
+          fontsize: 12,
           bold: true,
           showLabel: true,
         }
@@ -243,14 +260,14 @@ export function formatPositionShape(signal, lastCandle) {
       points: [{ time: tStart, price: tp }, { time: tEnd, price: tp }],
       options: {
         shape: 'trend_line',
-        text: `🎯 TP  ${tp}  (+${Math.abs(tpDiff)}% CHỐT LỜI)`,
+        text: `🎯 TP: ${tp}  (+${Math.abs(tpDiff)}% CHỐT LỜI)`,
         lock: true,
         overrides: {
           linecolor: '#00d69a',
           linewidth: 2,
           linestyle: 2,
           textcolor: '#00d69a',
-          fontsize: 11,
+          fontsize: 12,
           bold: true,
           showLabel: true,
         }
@@ -260,14 +277,14 @@ export function formatPositionShape(signal, lastCandle) {
       points: [{ time: tStart, price: sl }, { time: tEnd, price: sl }],
       options: {
         shape: 'trend_line',
-        text: `🛑 SL  ${sl}  (-${Math.abs(slDiff)}% CẮT LỖ)`,
+        text: `🛑 SL: ${sl}  (-${Math.abs(slDiff)}% CẮT LỖ)`,
         lock: true,
         overrides: {
           linecolor: '#ff4d4f',
           linewidth: 2,
           linestyle: 2,
           textcolor: '#ff4d4f',
-          fontsize: 11,
+          fontsize: 12,
           bold: true,
           showLabel: true,
         }

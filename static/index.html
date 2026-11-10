@@ -320,15 +320,23 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         }
       }
 
-      // 4. Signal Trade Visuals (Arrow, Entry, SL, TP, and Profit/Stop Boxes)
+      // 4. Signal Trade Visuals (Pointer Arrow, Entry, SL, TP, and Profit/Stop Boxes)
       const sig=structure.signal;
-      const lastCandle=structure.candles?.at(-1);
-      if(o.position&&sig&&sig.entry_price&&lastCandle){
-        const posShapes=formatPositionShape(sig,lastCandle);
+      const candles=structure.candles;
+      if(o.position&&sig&&sig.entry_price&&candles?.length){
+        const sigSec=Math.floor(sig.timestamp||candles.at(-1).time);
+        let targetCandle=candles.at(-1);
+        for(let i=candles.length-1;i>=0;i--){
+          if(candles[i].time<=sigSec){
+            targetCandle=candles[i];
+            break;
+          }
+        }
+        const posShapes=formatPositionShape(sig,targetCandle);
         if(posShapes){
-          if(posShapes.arrow) c.createShape(posShapes.arrow.point, posShapes.arrow.options);
           if(posShapes.profitBox) c.createMultipointShape(posShapes.profitBox.points, posShapes.profitBox.options);
           if(posShapes.stopBox) c.createMultipointShape(posShapes.stopBox.points, posShapes.stopBox.options);
+          if(posShapes.pointerArrow) c.createMultipointShape(posShapes.pointerArrow.points, posShapes.pointerArrow.options);
           if(posShapes.entryLine) c.createMultipointShape(posShapes.entryLine.points, posShapes.entryLine.options);
           if(posShapes.tpLine) c.createMultipointShape(posShapes.tpLine.points, posShapes.tpLine.options);
           if(posShapes.slLine) c.createMultipointShape(posShapes.slLine.points, posShapes.slLine.options);
@@ -346,12 +354,12 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       const candles=state.chartPayload.candles;
       const lastTime=candles.at(-1).time;
       if(days==='all'){
-        c.setVisibleRange({from:candles[0].time,to:lastTime+3600*2});
+        c.setVisibleRange({from:candles[0].time,to:lastTime+3600*6});
       }else{
         const numDays=Number(days)||3;
         const targetFrom=lastTime-(numDays*86400);
         const fromTime=Math.max(candles[0].time,targetFrom);
-        c.setVisibleRange({from:fromTime,to:lastTime+3600*2});
+        c.setVisibleRange({from:fromTime,to:lastTime+3600*6});
       }
     }catch(err){console.warn('applyTimeRange error:',err);}
   }
@@ -419,6 +427,8 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         'paneProperties.background':'#0c1218',
         'paneProperties.vertGridProperties.color':'#1b2630',
         'paneProperties.horzGridProperties.color':'#1b2630',
+        'paneProperties.topMargin':15,
+        'paneProperties.bottomMargin':15,
         'scalesProperties.textColor':'#788795',
         'mainSeriesProperties.candleStyle.upColor':'#00c990',
         'mainSeriesProperties.candleStyle.downColor':'#ff5368',
