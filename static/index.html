@@ -67,6 +67,34 @@
 .sym-change.down{color:var(--red)}
 .sym-empty{padding:20px;text-align:center;color:var(--muted);font:11px var(--mono)}
 
+
+.chart-cheat-sheet{background:#0a1017;border-top:1px solid var(--line);padding:12px 16px}
+.cheat-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.cheat-title{font-size:11px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;letter-spacing:.02em}
+.cheat-more-btn{background:transparent;border:0;color:var(--cyan);font:10px var(--mono);cursor:pointer;padding:0;text-decoration:underline}
+.cheat-more-btn:hover{color:#fff}
+.cheat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:1100px){.cheat-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:650px){.cheat-grid{grid-template-columns:1fr}}
+.cheat-card{background:#0e1620;border:1px solid #1c2b37;border-radius:4px;padding:9px 12px;transition:.15s}
+.cheat-card:hover{border-color:#2e4456;background:#121c29}
+.cheat-badge-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+.cheat-badge{display:inline-block;padding:2px 6px;border-radius:2px;font:10px var(--mono);font-weight:700}
+.cheat-badge.ob-demand{background:rgba(0,214,154,.15);color:#00d69a;border:1px solid #00d69a}
+.cheat-badge.ob-supply{background:rgba(255,94,110,.15);color:#ff5e6e;border:1px solid #ff5e6e}
+.cheat-badge.bos{background:#1d2935;color:#a7b2bd;border:1px dashed #788795}
+.cheat-badge.choch{background:#261822;color:#ff5e6e;border:1px dashed #ff5e6e}
+.cheat-action{font:9px var(--mono);font-weight:700;padding:2px 5px;border-radius:2px}
+.cheat-action.long{background:rgba(0,214,154,.2);color:#00d69a}
+.cheat-action.short{background:rgba(255,94,110,.2);color:#ff5e6e}
+.cheat-action.follow{background:rgba(101,207,255,.2);color:#65cfff}
+.cheat-action.reverse{background:rgba(245,184,75,.2);color:#f5b84b}
+.cheat-name{font-weight:700;font-size:11px;color:#fff;margin-bottom:3px}
+.cheat-desc{font-size:10px;color:#8a99a8;line-height:1.4}
+.cheat-pos-bar{display:flex;align-items:center;gap:16px;margin-top:10px;padding-top:8px;border-top:1px solid #16222d;font:10px var(--mono);color:var(--muted);flex-wrap:wrap}
+.cheat-pos-item{display:flex;align-items:center;gap:6px}
+.cheat-dot{width:8px;height:8px;border-radius:2px}
+
 </style>
 </head>
 <body>
@@ -93,7 +121,55 @@
     <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
   </div>
   <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
-</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-swatch" style="background:#788795;height:1px;border-top:1px dashed #a7b2bd"></i> BOS / CHoCH</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(0,214,154,.35);border:1px solid #00d69a"></i> +OB DEMAND</span><span class="legend-item"><i class="legend-swatch" style="background:rgba(255,94,110,.35);border:1px solid #ff5e6e"></i> -OB SUPPLY</span><span class="legend-item"><i class="legend-swatch entry"></i> VỊ THẾ R:R</span><span class="legend-item"><i class="legend-swatch sl"></i> DỪNG LỖ (SL)</span><span class="legend-item"><i class="legend-swatch tp"></i> CHỐT LỜI (TP)</span></div></section>
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-cheat-sheet">
+  <div class="cheat-head">
+    <div class="cheat-title">
+      <span>📚 BẢNG CHÚ THÍCH KÝ HIỆU (DÀNH CHO NGƯỜI MỚI CHƯA BIẾT TRADE)</span>
+    </div>
+    <button type="button" class="cheat-more-btn" id="cheatSheetDetailBtn">📖 Xem hướng dẫn chi tiết & 3 nguyên tắc vốn ↗</button>
+  </div>
+  <div class="cheat-grid">
+    <div class="cheat-card">
+      <div class="cheat-badge-row">
+        <span class="cheat-badge ob-demand">+OB [Demand]</span>
+        <span class="cheat-action long">CANH MUA (LONG)</span>
+      </div>
+      <div class="cheat-name">Vùng Gom Hàng của Cá Voi</div>
+      <div class="cheat-desc">Hộp xanh ngọc. Nơi cá voi đặt lệnh mua lớn, giá rơi về đây thường bật tăng mạnh trở lại.</div>
+    </div>
+    <div class="cheat-card">
+      <div class="cheat-badge-row">
+        <span class="cheat-badge ob-supply">-OB [Supply]</span>
+        <span class="cheat-action short">CANH BÁN (SHORT)</span>
+      </div>
+      <div class="cheat-name">Vùng Xả Hàng của Cá Voi</div>
+      <div class="cheat-desc">Hộp đỏ hồng. Nơi cá mập xả hàng chốt lời, giá tăng lên đây thường bị ép giảm mạnh xuống.</div>
+    </div>
+    <div class="cheat-card">
+      <div class="cheat-badge-row">
+        <span class="cheat-badge bos">BOS</span>
+        <span class="cheat-action follow">ĐÁNH THUẬN SÓNG</span>
+      </div>
+      <div class="cheat-name">Phá Cản Đi Tiếp (Break of Structure)</div>
+      <div class="cheat-desc">Đường nét đứt xám. Giá vừa tông vỡ cản cũ để chạy tiếp, sóng đang rất mạnh, không cản tàu.</div>
+    </div>
+    <div class="cheat-card">
+      <div class="cheat-badge-row">
+        <span class="cheat-badge choch">CHoCH</span>
+        <span class="cheat-action reverse">CHUẨN BỊ ĐỔI CHIỀU</span>
+      </div>
+      <div class="cheat-name">Quay Xe Đảo Chiều (Change of Character)</div>
+      <div class="cheat-desc">Đường nét đứt đỏ/xanh. Tín hiệu bẻ lái khi giá gãy mốc quan trọng, chuẩn bị đổi chiều sóng.</div>
+    </div>
+  </div>
+  <div class="cheat-pos-bar">
+    <span style="font-weight:700;color:#fff">🎯 HỘP VỊ THẾ R:R TRÊN NẾN:</span>
+    <span class="cheat-pos-item"><i class="cheat-dot" style="background:#00d69a"></i> <b>Hộp Xanh:</b> Chốt lời (TP)</span>
+    <span class="cheat-pos-item"><i class="cheat-dot" style="background:#ff5e6e"></i> <b>Hộp Đỏ:</b> Cắt lỗ (SL)</span>
+    <span class="cheat-pos-item"><i class="cheat-dot" style="background:#65cfff"></i> <b>Vạch Giữa:</b> Giá vào (Entry)</span>
+    <span class="cheat-pos-item" style="color:var(--amber)">⚖️ <b>Tỷ lệ R:R 1:2.5:</b> Mất 1 đồng lỗ ăn 2.5 đồng lãi</span>
+  </div>
+</div></section>
 <aside class="side"><section class="panel"><div class="side-head"><h2>Signal feed</h2><div class="feed-tabs" id="feedTabs"><button class="feed-tab active" data-tab="ALL">ALL</button><button class="feed-tab" data-tab="ACTIVE">OPEN</button><button class="feed-tab" data-tab="HISTORY">HISTORY</button></div></div><div class="signal-list" id="signalList"><div class="signal-empty">Chưa có setup đạt tiêu chí. Chọn <b>SCAN MARKET</b> để quét dữ liệu Futures mới nhất.</div></div><div class="footnote">Tín hiệu được theo dõi tự động theo Take Profit và Stop Loss.</div></section><section class="panel watchlist"><div class="side-head"><h2>High-volume contracts</h2><span class="count">24H QUOTE VOL</span></div><div class="watch-list" id="watchList"><div class="signal-empty">Đang tải danh sách hợp đồng…</div></div><div class="footnote">Binance USDⓈ-M · chỉ gồm hợp đồng USDT perpetual.</div></section></aside></main>
 <div class="disclaimer">RỦI RO CAO · Futures có thể khiến bạn mất toàn bộ vốn. Tín hiệu và mức Entry/SL/TP chỉ mang tính nghiên cứu; không đảm bảo lợi nhuận. Luôn tự xác minh trước khi giao dịch.</div>
 
@@ -505,6 +581,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     }
   }));
     $('#guideBtn').onclick=()=>$('#guideModal').classList.remove('hidden');
+  const cheatBtn=$('#cheatSheetDetailBtn');if(cheatBtn)cheatBtn.onclick=()=>$('#guideModal').classList.remove('hidden');
   $('#closeGuideBtn').onclick=()=>$('#guideModal').classList.add('hidden');
   $('#guideModal').onclick=(e)=>{if(e.target===$('#guideModal'))$('#guideModal').classList.add('hidden');};
   $('#scanBtn').onclick=scan;$('#refreshBtn').onclick=async()=>{await loadSymbols();await loadStatus();await loadSignals();await loadChart();toast('Market data refreshed')};
