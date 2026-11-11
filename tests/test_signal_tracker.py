@@ -78,7 +78,7 @@ def test_signal_tracker_crud_and_stats(tracker):
 
 
 def test_signal_outcome_evaluation_rules(tracker):
-    # 1. Test LONG - WIN by hitting TP1
+    # 1. Test LONG - WIN by hitting TP1 (when no separate TP2)
     long_sig = {
         "symbol": "BTCUSDT",
         "timeframe": "15m",
@@ -87,7 +87,7 @@ def test_signal_outcome_evaluation_rules(tracker):
         "entry_price": 78000.0,
         "stop_loss": 77000.0,
         "tp1": 80200.0,
-        "tp2": 81000.0,
+        "tp2": 80200.0,
         "risk_reward": 2.2,
         "timestamp": 1700000000.0,
     }
@@ -126,7 +126,7 @@ def test_signal_outcome_evaluation_rules(tracker):
         "entry_price": 100.0,
         "stop_loss": 102.0,
         "tp1": 95.6,
-        "tp2": 94.0,
+        "tp2": 95.6,
         "risk_reward": 2.2,
         "timestamp": 1700000000.0,
     }
@@ -254,5 +254,41 @@ def test_single_active_position_policy_blocks_duplicate_or_opposing_signals(trac
     assert len(open_sigs) == 1
     assert open_sigs[0]["id"] == id1
     assert open_sigs[0]["signal_type"] == "LONG"
+
+
+def test_universal_breakeven_protection_on_all_patterns(tracker):
+    # TRENDLINE_BREAKOUT trade: Entry 100, SL 90, TP1 115 (1.5R), TP2 125 (2.5R)
+    sig = {
+        "symbol": "SOLUSDT",
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "TRENDLINE_BREAKOUT",
+        "entry_price": 100.0,
+        "stop_loss": 90.0,
+        "tp1": 115.0,
+        "tp2": 125.0,
+        "risk_reward": 2.5,
+        "timestamp": 1700000000.0,
+    }
+    sig_id = tracker.save_signal(sig, [{"timestamp": 1700000000000, "open": 100, "high": 101, "low": 99, "close": 100}])
+
+    # Candle 1 touches TP1 (116 >= 115) but less than TP2 (125)
+    c1 = {"timestamp": 1700000900000, "open": 100, "high": 116, "low": 99.5, "close": 114}
+    res1 = tracker.evaluate_signal(sig_id, c1)
+
+    # Must activate breakeven protection: remain OPEN, breakeven_reached=1, stop_loss moved to entry 100.0
+    assert res1["status"] == "OPEN"
+    assert res1.get("breakeven_reached") == 1
+    assert res1["stop_loss"] == 100.0
+
+    # Candle 2 drops back down to 99.0 (below entry 100.0)
+    c2 = {"timestamp": 1700001800000, "open": 112, "high": 113, "low": 99.0, "close": 99.2}
+    res2 = tracker.evaluate_signal(sig_id, c2)
+
+    # Stopped out at Breakeven with partial win, NOT -1.0R loss!
+    assert res2["status"] == "WIN"
+    assert res2["exit_price"] == 100.0
+    assert res2["pnl_r"] > 0.0
+
 
 

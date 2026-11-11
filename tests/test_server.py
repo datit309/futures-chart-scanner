@@ -362,7 +362,7 @@ async def test_api_signals_and_historical_chart_endpoints(aiohttp_client, tmp_pa
     }
     klines = [
         {"timestamp": 1699990000000, "open": 77500, "high": 78100, "low": 77400, "close": 78000, "volume": 100},
-        {"timestamp": 1700000000000, "open": 78000, "high": 80300, "low": 77900, "close": 80200, "volume": 120},
+        {"timestamp": 1700000000000, "open": 78000, "high": 81200, "low": 77900, "close": 81000, "volume": 120},
     ]
     sig_id = tracker.save_signal(sig, klines)
     # Win it

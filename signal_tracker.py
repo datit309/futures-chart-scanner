@@ -138,7 +138,7 @@ class SignalTracker:
         ts_sec = float(ts_raw) / 1000.0 if float(ts_raw) > 1e11 else float(ts_raw)
 
         has_tp2 = (tp2 > tp1 if is_long else (0 < tp2 < tp1))
-        use_be_runner = has_tp2 and sig.get("pattern") in ("SMC_ORDER_BLOCK_RETEST", "TREND_PULLBACK")
+        use_be_runner = has_tp2
         tp1_already_hit = bool(sig.get("tp1_hit") or sig.get("breakeven_reached"))
 
         # Check max holding timeout (default 32 bars, e.g. 8h on 15m)
