@@ -303,6 +303,33 @@ test('formatHistoryTrades skips incomplete or open trades', () => {
   assert.equal(shapes.length, 0);
 });
 
+test('formatHistoryTrades caps output to 15 trades and filters ancient trades', () => {
+  const baseTime = 1700000000;
+  const trades = [];
+  for (let i = 0; i < 30; i++) {
+    trades.push({
+      id: i + 1,
+      symbol: 'BTCUSDT',
+      signal_type: 'LONG',
+      status: 'WIN',
+      entry_price: 60000 + i * 10,
+      sl_pct: 0.005,
+      pnl_r: 2.2,
+      created_at: baseTime + i * 3600,
+    });
+  }
+  // Default call should cap to 15 trades instead of all 30
+  const defaultShapes = formatHistoryTrades(trades);
+  assert.equal(defaultShapes.length, 15, 'Default history trade limit must be 15');
+
+  // Window filter: with 24-hour window, only trades within 24h of nowSec should pass
+  const nowSec = baseTime + 29 * 3600;
+  const recentShapes = formatHistoryTrades(trades, 15, 24 * 3600, nowSec);
+  assert.ok(recentShapes.length <= 15);
+  assert.ok(recentShapes.every(s => s.point.time >= (nowSec - 24 * 3600)));
+});
+
+
 test('formatSignalPlainExplanation translates trading setup into simple Vietnamese', () => {  const longOB = { signal_type: 'LONG', pattern: 'SMC_ORDER_BLOCK_RETEST' };
   const exp1 = formatSignalPlainExplanation(longOB);
   assert.ok(exp1.includes('Đánh LÊN (LONG)'));

@@ -94,8 +94,10 @@ const HISTORY_TRADE_COLORS = {
   EXPIRED: '#788795',
 };
 
-export function formatHistoryTrades(signals, limit = 60) {
+export function formatHistoryTrades(signals, limit = 15, maxAgeSeconds = 0, nowSec = null) {
   if (!Array.isArray(signals)) return [];
+  const now = nowSec !== null ? nowSec : (Date.now() / 1000);
+  const minTime = maxAgeSeconds > 0 ? (now - maxAgeSeconds) : 0;
   const shapes = [];
   const trades = signals
     .filter(s => {
@@ -103,7 +105,9 @@ export function formatHistoryTrades(signals, limit = 60) {
       if (!['WIN', 'LOSS', 'EXPIRED'].includes(status)) return false;
       const entryTime = Number(s.created_at);
       const entry = Number(s.entry_price);
-      return Number.isFinite(entryTime) && Number.isFinite(entry) && entry > 0;
+      if (!(Number.isFinite(entryTime) && Number.isFinite(entry) && entry > 0)) return false;
+      if (minTime > 0 && entryTime < minTime) return false;
+      return true;
     })
     .slice(-limit);
 
