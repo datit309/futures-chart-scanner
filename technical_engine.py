@@ -50,6 +50,7 @@ class MarketSignal:
     regime: str = "RANGING"
     tp1: float = 0.0
     tp2: float = 0.0
+    htf_bias: str = "NEUTRAL"
 
 class TechnicalEngine:
     def __init__(self, swing_window: int = 2, min_touches: int = 3, tolerance_pct: float = 0.005):
@@ -377,6 +378,7 @@ class TechnicalEngine:
         symbol: str = "BTCUSDT",
         timeframe: str = "15m",
         eval_bar_index: Optional[int] = None,
+        htf_bias: str = "NEUTRAL",
     ) -> List[MarketSignal]:
         """
         Analyze candlestick chart data using Regime-Adaptive Quantitative Rules:
@@ -605,6 +607,16 @@ class TechnicalEngine:
                                 tp1=round(curr_price - risk * 1.5, 4),
                                 tp2=round(tp, 4)
                             ))
+
+        # Multi-Timeframe (MTF) Alignment Filter:
+        # If HTF is BULLISH, forbid counter-trend SHORTs. If HTF is BEARISH, forbid counter-trend LONGs.
+        if htf_bias == "BULLISH":
+            signals = [s for s in signals if s.signal_type == "LONG"]
+        elif htf_bias == "BEARISH":
+            signals = [s for s in signals if s.signal_type == "SHORT"]
+
+        for s in signals:
+            s.htf_bias = htf_bias
 
         # Single Active Position Guarantee:
         # Sort candidate signals by R:R descending and return ONLY the single best setup
@@ -1044,3 +1056,64 @@ class TechnicalEngine:
             "ema200": round(ema200, 4),
             "close": curr_close
         }
+
+    def detect_htf_bias(self, klines_1h: List[Dict[str, Any]]) -> str:
+        """
+        Determine Higher Timeframe (1H) trend bias:
+        - "BULLISH": close > EMA50 and EMA20 >= EMA50.
+        - "BEARISH": close < EMA50 and EMA20 <= EMA50.
+        - "NEUTRAL": otherwise.
+        """
+        if not klines_1h or len(klines_1h) < 10:
+            return "NEUTRAL"
+        closes = [float(k["close"]) for k in klines_1h]
+        n = len(closes)
+        ema20_series = self.calc_ema(closes, min(20, n))
+        ema50_series = self.calc_ema(closes, min(50, n))
+        if not ema20_series or not ema50_series:
+            return "NEUTRAL"
+        ema20 = ema20_series[-1]
+        ema50 = ema50_series[-1]
+        curr_close = closes[-1]
+
+        if curr_close > ema50 and ema20 >= ema50:
+            return "BULLISH"
+        elif curr_close < ema50 and ema20 <= ema50:
+            return "BEARISH"
+        return "NEUTRAL"
+
+    def is_btc_circuit_breaker_active(
+        self,
+        btc_klines_15m: List[Dict[str, Any]],
+        threshold_pct: float = 0.012
+    ) -> bool:
+        """
+        Detect extreme sudden Bitcoin volatility spikes that invalidate altcoin technical structures.
+        Returns True if BTC moved > threshold_pct in a single recent bar or ATR spiked dramatically.
+        """
+        if not btc_klines_15m or len(btc_klines_15m) < 2:
+            return False
+
+        # Inspect last 2 bars
+        for bar in btc_klines_15m[-2:]:
+            o = float(bar.get("open", 0.0))
+            c = float(bar.get("close", 0.0))
+            h = float(bar.get("high", 0.0))
+            l = float(bar.get("low", 0.0))
+            if o <= 0:
+                continue
+            body_pct = abs(c - o) / o
+            range_pct = (h - l) / (l if l > 0 else o)
+            if body_pct >= threshold_pct or range_pct >= (threshold_pct * 1.5):
+                return True
+
+        # Check ATR ratio surge
+        atr_series = self.calc_atr(btc_klines_15m, 14)
+        if len(atr_series) >= 15:
+            avg_atr = float(np.mean(atr_series[-15:-1]))
+            curr_atr = atr_series[-1]
+            c = float(btc_klines_15m[-1].get("close", 1.0))
+            if avg_atr > 0 and curr_atr >= 2.0 * avg_atr and (curr_atr / c) >= 0.01:
+                return True
+
+        return False

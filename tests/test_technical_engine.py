@@ -441,3 +441,65 @@ def test_lina_rsi_wave_and_pullback_detection():
 
     # 3. Test PatternType.LINA_RSI_PULLBACK presence
     assert hasattr(PatternType, "LINA_RSI_PULLBACK")
+
+
+def test_mtf_htf_bias_and_btc_circuit_breaker():
+    engine = TechnicalEngine()
+
+    # 1. Test detect_htf_bias
+    # Strong upward trend on 1H:
+    bullish_1h = create_synthetic_klines([(100 + i * 2, 102 + i * 2, 99 + i * 2, 101 + i * 2) for i in range(50)])
+    bias_bull = engine.detect_htf_bias(bullish_1h)
+    assert bias_bull == "BULLISH"
+
+    # Strong downward trend on 1H:
+    bearish_1h = create_synthetic_klines([(200 - i * 2, 201 - i * 2, 198 - i * 2, 199 - i * 2) for i in range(50)])
+    bias_bear = engine.detect_htf_bias(bearish_1h)
+    assert bias_bear == "BEARISH"
+
+    # 2. Test BTC Circuit Breaker
+    # Calm BTC: ~0.2% candle body
+    calm_btc = create_synthetic_klines([(60000 + i * 10, 60100 + i * 10, 59950 + i * 10, 60050 + i * 10) for i in range(30)])
+    assert engine.is_btc_circuit_breaker_active(calm_btc) is False
+
+    # Violent BTC flash crash candle (> 1.5% drop in single bar)
+    violent_btc = [dict(k) for k in calm_btc]
+    violent_btc[-1] = {
+        "timestamp": calm_btc[-1]["timestamp"] + 900000,
+        "open": 60000.0,
+        "high": 60100.0,
+        "low": 58500.0,  # 2.5% flash dump
+        "close": 58700.0,
+        "volume": 5000.0,
+        "close_time": calm_btc[-1]["close_time"] + 900000,
+    }
+    assert engine.is_btc_circuit_breaker_active(violent_btc) is True
+
+    # 3. Test analyze_market rejects counter-trend setups when htf_bias is active
+    # Downward 15m breakout test setup (normally generates LONG on resistance breakout)
+    prices = [
+        (95, 96, 94, 95), (95, 98, 95, 97), (97, 100, 96, 98),
+        (98, 98, 93, 94), (94, 95, 92, 93), (93, 94, 91, 92),
+        (92, 95, 91, 94), (94, 94, 89, 90), (90, 91, 88, 89),
+        (89, 90, 87, 88), (88, 90, 87, 89), (89, 89, 86, 87),
+        (87, 93, 87, 92),
+    ]
+    klines_15m = create_synthetic_klines(prices)
+    for k in klines_15m[:-1]:
+        k["volume"] = 100.0
+    klines_15m.append({
+        "timestamp": klines_15m[-1]["timestamp"] + 900000,
+        "open": 92, "high": 93, "low": 91, "close": 92, "volume": 10.0,
+        "close_time": 9999999999999,
+    })
+    klines_15m[-2]["volume"] = 250.0
+
+    # With BULLISH bias, LONG signal is accepted:
+    sigs_bull = engine.analyze_market(klines_15m, symbol="SOLUSDT", timeframe="15m", htf_bias="BULLISH")
+    assert len(sigs_bull) == 1
+    assert sigs_bull[0].signal_type == "LONG"
+
+    # With BEARISH bias, LONG signal is VETOED:
+    sigs_bear = engine.analyze_market(klines_15m, symbol="SOLUSDT", timeframe="15m", htf_bias="BEARISH")
+    assert len(sigs_bear) == 0
+

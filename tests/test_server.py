@@ -652,3 +652,62 @@ async def test_run_scan_enforces_single_active_position_per_symbol():
         assert len(found) == 0
         mock_analyze.assert_not_called()
 
+
+@pytest.mark.asyncio
+async def test_run_scan_pauses_altcoins_on_btc_circuit_breaker():
+    """When Bitcoin suffers extreme volatility spike, run_scan skips altcoins."""
+    from unittest.mock import MagicMock, patch
+    from risk_manager import EnrichedSignal
+    from technical_engine import MarketSignal, PatternType
+
+    app = await create_app(ScannerConfig(top_n_coins=2, timeframe="15m"))
+    state = app["state"]
+
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT", "ETHUSDT"])
+
+    base_ts = 1794386600000
+    # Create BTC klines with violent 2.5% flash dump on latest candle
+    btc_klines = [
+        {"timestamp": base_ts + i * 900000, "open": 60000, "high": 60100, "low": 59900, "close": 60000, "volume": 100.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(25)
+    ]
+    btc_klines.append({
+        "timestamp": base_ts + 25 * 900000,
+        "open": 60000.0,
+        "high": 60100.0,
+        "low": 58000.0,
+        "close": 58200.0,
+        "volume": 5000.0,
+        "close_time": base_ts + 26 * 900000 - 1,
+    })
+
+    eth_klines = [
+        {"timestamp": base_ts + i * 900000, "open": 3000, "high": 3050, "low": 2980, "close": 3020, "volume": 50.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(25)
+    ]
+
+    async def mock_get_klines(sym, interval="15m", limit=80, endTime=None):
+        if sym == "BTCUSDT":
+            return btc_klines
+        return eth_klines
+
+    state.client.get_klines = AsyncMock(side_effect=mock_get_klines)
+    state.signal_tracker.evaluate_open_signals = MagicMock(return_value=[])
+
+    raw_eth = MarketSignal(symbol="ETHUSDT", timeframe="15m", signal_type="LONG",
+                           pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=3020.0,
+                           stop_loss=2950.0, take_profit=3200.0, risk_reward=2.5,
+                           description="ETH Breakout")
+
+    def mock_analyze(klines, symbol="BTCUSDT", timeframe="15m", htf_bias="NEUTRAL"):
+        if symbol == "ETHUSDT":
+            return [raw_eth]
+        return []
+
+    with patch.object(state.technical_engine, "analyze_market", side_effect=mock_analyze):
+        found = await state.run_scan()
+        # ETHUSDT signal should be skipped because BTC circuit breaker is active!
+        eth_found = [s for s in found if s["symbol"] == "ETHUSDT"]
+        assert len(eth_found) == 0
+
+

@@ -118,6 +118,17 @@ class WebServerState:
             if symbols:
                 self.top_symbols = symbols
 
+            # Bitcoin Volatility Circuit Breaker check
+            btc_circuit_active = False
+            try:
+                btc_klines = await self.client.get_klines("BTCUSDT", interval="15m", limit=30)
+                if btc_klines and len(btc_klines) >= 15:
+                    btc_circuit_active = self.technical_engine.is_btc_circuit_breaker_active(btc_klines)
+                    if btc_circuit_active:
+                        print("[CircuitBreaker] ⚠️ Bitcoin extreme volatility detected! Pausing altcoin signals.")
+            except Exception as exc:
+                print(f"[CircuitBreaker] Error checking BTC volatility: {exc}")
+
             found_signals = []
             for sym in self.top_symbols:
                 klines = await self.client.get_klines(sym, interval=self.config.timeframe, limit=80)
@@ -140,7 +151,22 @@ class WebServerState:
                 if self.active_signals.get(sym, {}).get("status") == "OPEN":
                     continue
 
-                raw_signals = self.technical_engine.analyze_market(klines, symbol=sym, timeframe=self.config.timeframe)
+                # If BTC circuit breaker is active, pause new signals for altcoins
+                if btc_circuit_active and sym != "BTCUSDT":
+                    continue
+
+                # Multi-Timeframe (MTF) Trend Alignment from 1H klines
+                htf_bias = "NEUTRAL"
+                try:
+                    klines_1h = await self.client.get_klines(sym, interval="1h", limit=50)
+                    if klines_1h and len(klines_1h) >= 10:
+                        htf_bias = self.technical_engine.detect_htf_bias(klines_1h)
+                except Exception as exc:
+                    print(f"[MTF] Error fetching 1h klines for {sym}: {exc}")
+
+                raw_signals = self.technical_engine.analyze_market(
+                    klines, symbol=sym, timeframe=self.config.timeframe, htf_bias=htf_bias
+                )
                 for raw_sig in raw_signals:
                     enriched = self.risk_manager.validate_and_enrich(raw_sig)
                     if enriched:
@@ -157,6 +183,7 @@ class WebServerState:
                             "risk_reward": enriched.risk_reward,
                             "sl_pct": enriched.sl_pct,
                             "description": enriched.description,
+                            "htf_bias": getattr(enriched, "htf_bias", htf_bias),
                             "timestamp": time.time(),
                             "status": "OPEN",
                         }

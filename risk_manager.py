@@ -77,6 +77,10 @@ class RiskManager:
             trendlines=signal.trendlines,
             sr_zones=signal.sr_zones,
             fvgs=signal.fvgs,
+            regime=getattr(signal, "regime", "RANGING"),
+            tp1=tp1,
+            tp2=tp2,
+            htf_bias=getattr(signal, "htf_bias", "NEUTRAL"),
             extra_targets={"tp1": tp1, "tp2": tp2},
             sl_pct=sl_pct
         )
