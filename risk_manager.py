@@ -17,7 +17,7 @@ class RiskManager:
         entry = signal.entry_price
         sl = signal.stop_loss
         is_long = signal.signal_type == "LONG"
-        required_rr = 1.2 if getattr(signal, "pattern", None) == PatternType.MEAN_REVERSION_TRAP else self.min_rr
+        required_rr = self.min_rr
 
         if is_long:
             risk = entry - sl
@@ -34,11 +34,11 @@ class RiskManager:
                 rr = (signal.take_profit - entry) / risk
                 if rr < required_rr:
                     return None
-                tp1 = getattr(signal, "tp1", 0.0) or (entry + risk * 1.2)
+                tp1 = getattr(signal, "tp1", 0.0) or (entry + risk * 1.5)
                 tp2 = getattr(signal, "tp2", 0.0) or signal.take_profit
             else:
-                tp1 = entry + risk * 1.2
-                tp2 = entry + risk * 2.2
+                tp1 = entry + risk * 1.5
+                tp2 = entry + risk * 2.5
                 rr = (tp2 - entry) / risk
         else:
             risk = sl - entry
@@ -53,11 +53,11 @@ class RiskManager:
                 rr = (entry - signal.take_profit) / risk
                 if rr < required_rr:
                     return None
-                tp1 = getattr(signal, "tp1", 0.0) or (entry - risk * 1.2)
+                tp1 = getattr(signal, "tp1", 0.0) or (entry - risk * 1.5)
                 tp2 = getattr(signal, "tp2", 0.0) or signal.take_profit
             else:
-                tp1 = entry - risk * 1.2
-                tp2 = entry - risk * 2.2
+                tp1 = entry - risk * 1.5
+                tp2 = entry - risk * 2.5
                 rr = (entry - tp2) / risk
 
 

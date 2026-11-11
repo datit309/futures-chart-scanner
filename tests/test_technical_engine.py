@@ -18,7 +18,50 @@ def create_synthetic_klines(prices: list[tuple[float, float, float, float]], sta
     ]
 
 
-def test_find_swing_points():
+def test_breakout_requires_confirmed_candle_close_and_volume_surge():
+    import time
+    engine = TechnicalEngine()
+    # Downward swing highs to build resistance line with confirmed breakout at bar 12:
+    prices = [
+        (95, 96, 94, 95), (95, 98, 95, 97), (97, 100, 96, 98),
+        (98, 98, 93, 94), (94, 95, 92, 93), (93, 94, 91, 92),
+        (92, 95, 91, 94), (94, 94, 89, 90), (90, 91, 88, 89),
+        (89, 90, 87, 88), (88, 90, 87, 89), (89, 89, 86, 87),
+        (87, 93, 87, 92), # confirmed breakout candle!
+    ]
+    klines_low_vol = create_synthetic_klines(prices)
+    for k in klines_low_vol[:-1]:
+        k["volume"] = 100.0
+    # Add forming live bar (future close_time)
+    klines_low_vol.append({
+        "timestamp": klines_low_vol[-1]["timestamp"] + 900000,
+        "open": 92, "high": 93, "low": 91, "close": 92, "volume": 10.0,
+        "close_time": time.time() * 1000 + 600000,
+    })
+
+    # Case 1: Low volume on breakout bar (-2) -> rejected
+    klines_low_vol[-2]["volume"] = 50.0
+    signals_no_vol = engine.analyze_market(klines_low_vol, symbol="BTCUSDT", timeframe="15m")
+    assert not any(s.pattern == PatternType.TRENDLINE_BREAKOUT for s in signals_no_vol), "Low volume breakout must be rejected"
+
+    # Case 2: Volume surge on breakout bar (-2) -> confirmed LONG signal
+    klines_high_vol = [dict(k) for k in klines_low_vol]
+    klines_high_vol[-2]["volume"] = 250.0
+    signals_surge = engine.analyze_market(klines_high_vol, symbol="BTCUSDT", timeframe="15m")
+    bo_signals = [s for s in signals_surge if s.pattern == PatternType.TRENDLINE_BREAKOUT]
+    assert len(bo_signals) == 1, "Volume surge confirmed breakout must trigger exactly one signal"
+    assert bo_signals[0].signal_type == "LONG"
+    assert bo_signals[0].risk_reward >= 2.0
+
+
+def test_analyze_market_never_emits_multiple_or_opposing_signals():
+    engine = TechnicalEngine()
+    # Volatile bar that breaks both ways
+    prices = [(100, 102, 98, 100)] * 30
+    klines = create_synthetic_klines(prices)
+    signals = engine.analyze_market(klines, symbol="ETHUSDT", timeframe="15m")
+    assert len(signals) <= 1, "At most 1 signal per symbol allowed"
+
     engine = TechnicalEngine()
     prices = [
         (100, 102, 99, 101),
