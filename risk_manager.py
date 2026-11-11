@@ -13,11 +13,28 @@ class RiskManager:
         self.max_sl_pct = max_sl_pct
         self.min_sl_pct = min_sl_pct
 
-    def validate_and_enrich(self, signal: MarketSignal) -> Optional[EnrichedSignal]:
+    def validate_and_enrich(
+        self,
+        signal: MarketSignal,
+        funding_rate: Optional[float] = None,
+        open_interest: Optional[float] = None,
+    ) -> Optional[EnrichedSignal]:
         entry = signal.entry_price
         sl = signal.stop_loss
         is_long = signal.signal_type == "LONG"
         required_rr = self.min_rr
+
+        fr = funding_rate if funding_rate is not None else getattr(signal, "funding_rate", 0.0)
+        oi = open_interest if open_interest is not None else getattr(signal, "open_interest", 0.0)
+
+        # Funding Rate Crowd Protection:
+        # Veto LONG when funding rate > +0.04% (0.0004) -> over-leveraged longs susceptible to long squeeze
+        # Veto SHORT when funding rate < -0.04% (-0.0004) -> over-leveraged shorts susceptible to short squeeze
+        if fr is not None:
+            if is_long and fr > 0.0004:
+                return None
+            elif not is_long and fr < -0.0004:
+                return None
 
         if is_long:
             risk = entry - sl
@@ -81,6 +98,8 @@ class RiskManager:
             tp1=tp1,
             tp2=tp2,
             htf_bias=getattr(signal, "htf_bias", "NEUTRAL"),
+            funding_rate=float(fr or 0.0),
+            open_interest=float(oi or 0.0),
             extra_targets={"tp1": tp1, "tp2": tp2},
             sl_pct=sl_pct
         )

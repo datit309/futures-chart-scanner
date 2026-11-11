@@ -58,3 +58,46 @@ def test_risk_manager_rejects_extreme_stop_loss():
 
     enriched = rm.validate_and_enrich(signal)
     assert enriched is None
+
+
+def test_risk_manager_funding_rate_crowd_filter():
+    rm = RiskManager(min_rr=2.0)
+    sig_long = MarketSignal(
+        symbol="BTCUSDT",
+        timeframe="15m",
+        signal_type="LONG",
+        pattern=PatternType.TRENDLINE_BREAKOUT,
+        entry_price=60000.0,
+        stop_loss=59400.0,
+        take_profit=61500.0,
+        risk_reward=2.5,
+        description="Bullish Breakout"
+    )
+
+    # 1. Extreme high funding rate (> +0.04% e.g. 0.05% = 0.0005) -> crowded longs, must be vetoed
+    assert rm.validate_and_enrich(sig_long, funding_rate=0.0005) is None
+
+    # Normal funding rate (+0.01% = 0.0001) -> approved
+    approved_long = rm.validate_and_enrich(sig_long, funding_rate=0.0001, open_interest=15000.0)
+    assert approved_long is not None
+    assert approved_long.funding_rate == 0.0001
+    assert approved_long.open_interest == 15000.0
+
+    sig_short = MarketSignal(
+        symbol="BTCUSDT",
+        timeframe="15m",
+        signal_type="SHORT",
+        pattern=PatternType.TRENDLINE_BREAKOUT,
+        entry_price=60000.0,
+        stop_loss=60600.0,
+        take_profit=58500.0,
+        risk_reward=2.5,
+        description="Bearish Breakdown"
+    )
+
+    # 2. Extreme low funding rate (< -0.04% e.g. -0.05% = -0.0005) -> crowded shorts, must be vetoed
+    assert rm.validate_and_enrich(sig_short, funding_rate=-0.0005) is None
+
+    # Normal funding rate -> approved
+    approved_short = rm.validate_and_enrich(sig_short, funding_rate=-0.0001)
+    assert approved_short is not None

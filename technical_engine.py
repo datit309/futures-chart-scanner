@@ -51,6 +51,8 @@ class MarketSignal:
     tp1: float = 0.0
     tp2: float = 0.0
     htf_bias: str = "NEUTRAL"
+    funding_rate: float = 0.0
+    open_interest: float = 0.0
 
 class TechnicalEngine:
     def __init__(self, swing_window: int = 2, min_touches: int = 3, tolerance_pct: float = 0.005):

@@ -167,26 +167,39 @@ class WebServerState:
                 raw_signals = self.technical_engine.analyze_market(
                     klines, symbol=sym, timeframe=self.config.timeframe, htf_bias=htf_bias
                 )
-                for raw_sig in raw_signals:
-                    enriched = self.risk_manager.validate_and_enrich(raw_sig)
-                    if enriched:
-                        sig_dict = {
-                            "symbol": enriched.symbol,
-                            "timeframe": enriched.timeframe,
-                            "signal_type": enriched.signal_type,
-                            "pattern": enriched.pattern.value if hasattr(enriched.pattern, 'value') else str(enriched.pattern),
-                            "entry_price": enriched.entry_price,
-                            "stop_loss": enriched.stop_loss,
-                            "take_profit": enriched.take_profit,
-                            "tp1": enriched.extra_targets.get("tp1", enriched.take_profit),
-                            "tp2": enriched.extra_targets.get("tp2", enriched.take_profit),
-                            "risk_reward": enriched.risk_reward,
-                            "sl_pct": enriched.sl_pct,
-                            "description": enriched.description,
-                            "htf_bias": getattr(enriched, "htf_bias", htf_bias),
-                            "timestamp": time.time(),
-                            "status": "OPEN",
-                        }
+                if raw_signals:
+                    funding_rate = 0.0
+                    open_interest = 0.0
+                    try:
+                        funding_rate = await self.client.get_funding_rate(sym)
+                        open_interest = await self.client.get_open_interest(sym)
+                    except Exception as exc:
+                        print(f"[OrderFlow] Error fetching metrics for {sym}: {exc}")
+
+                    for raw_sig in raw_signals:
+                        enriched = self.risk_manager.validate_and_enrich(
+                            raw_sig, funding_rate=funding_rate, open_interest=open_interest
+                        )
+                        if enriched:
+                            sig_dict = {
+                                "symbol": enriched.symbol,
+                                "timeframe": enriched.timeframe,
+                                "signal_type": enriched.signal_type,
+                                "pattern": enriched.pattern.value if hasattr(enriched.pattern, 'value') else str(enriched.pattern),
+                                "entry_price": enriched.entry_price,
+                                "stop_loss": enriched.stop_loss,
+                                "take_profit": enriched.take_profit,
+                                "tp1": enriched.extra_targets.get("tp1", enriched.take_profit),
+                                "tp2": enriched.extra_targets.get("tp2", enriched.take_profit),
+                                "risk_reward": enriched.risk_reward,
+                                "sl_pct": enriched.sl_pct,
+                                "description": enriched.description,
+                                "htf_bias": getattr(enriched, "htf_bias", htf_bias),
+                                "funding_rate": getattr(enriched, "funding_rate", funding_rate),
+                                "open_interest": getattr(enriched, "open_interest", open_interest),
+                                "timestamp": time.time(),
+                                "status": "OPEN",
+                            }
 
                         # Persist to SQLite database with kline snapshot
                         sig_id = None
