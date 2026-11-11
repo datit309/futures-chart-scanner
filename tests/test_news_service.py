@@ -11,6 +11,7 @@ import time
 import pytest
 
 from news_service import (
+    ALIASES,
     NewsService,
     dedup_key,
     event_tags,
@@ -262,8 +263,9 @@ def test_ambiguous_tickers_only_match_explicit_aliases():
     assert "OP" in symbols
     symbols, _ = match_symbols("Solana outage hits network")  # SOL bare ticker ok
     assert "SOL" in symbols
-    symbols, _ = match_symbols("Gas fees spike on Ethereum")  # GAS denied bare ticker
+    symbols, _ = match_symbols("Gas fees spike on Ethereum")  # GAS untracked entirely (ordinary word)
     assert "GAS" not in symbols
+    assert "GAS" not in ALIASES  # untracked, not merely alias-only
 
 
 def test_broad_market_rule_does_not_match_unrelated_story():
@@ -368,3 +370,45 @@ def test_cancelled_refresh_closes_response():
 def test_sanitize_text_caps_and_strips():
     assert sanitize_text("<b>Bold</b> &amp; <i>italic</i>") == "Bold & italic"
     assert len(sanitize_text("a" * 500)) == 300
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (2026-11-11): negation must scan ALL occurrences; encoding
+# bypass; content-type sniff
+# ---------------------------------------------------------------------------
+
+def test_event_tag_negation_checks_all_occurrences():
+    # First "hack" is negated, but a second real hit must still tag the item.
+    tags = event_tags("No hack confirmed, but exchange hack drains funds")
+    assert "hack" in tags
+    tags2 = event_tags("Exchange denies ban, yet another ban hits trading")
+    assert "ban" in tags2
+
+
+def test_rejects_utf16_encoded_dtd_payload():
+    payload = ('<?xml version="1.0" encoding="UTF-16"?>'
+               '<!DOCTYPE rss [<!ENTITY x "expanded">]>'
+               '<rss version="2.0"><channel><title>&x;</title></channel></rss>')
+    body = payload.encode("utf-16")
+    entries, err = parse_feed_entries(GN_FEED, body, fetch_time=1_794_400_000.0)
+    assert entries == []
+    assert err in ("unsafe_xml", "unsupported_encoding")
+
+
+def test_rejects_utf8_body_declaring_utf16_encoding():
+    payload = ('<?xml version="1.0" encoding="UTF-16"?>'
+               '<rss version="2.0"><channel><title>Bitcoin moves - Bloomberg</title>'
+               '<link>https://news.google.com/rss/articles/u16</link></channel></rss>')
+    entries, err = parse_feed_entries(GN_FEED, payload.encode("utf-8"), fetch_time=1_794_400_000.0)
+    assert entries == []
+    assert err == "unsupported_encoding"
+
+
+def test_empty_content_type_sniffs_xml_body():
+    body = RSS_TEMPLATE.format(items=google_item(
+        "Bitcoin holds gains", "Bloomberg", link="https://news.google.com/rss/articles/sniff1",
+        pubdate="Tue, 11 Nov 2026 09:00:01 GMT")).encode()
+    service, _ = make_service({GN_FEED["url"]: FakeResponse(body=body, content_type="")}, feeds=[GN_FEED])
+    asyncio.run(service.refresh())
+    titles = [i["title"] for i in service.items(symbol="BTCUSDT")]
+    assert "Bitcoin holds gains" in titles

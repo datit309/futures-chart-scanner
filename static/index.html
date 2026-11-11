@@ -655,6 +655,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       fetchFn: (url, opts) => fetch(url, opts),
     });
     newsController.start();
+    window.addEventListener('pagehide', () => newsController.stop());
   } catch (e) { console.warn('News panel unavailable', e); }
   loadStatus();loadSignals();loadHistorySignals();connectWs();
   setInterval(loadStatus,15000);setInterval(loadSignals,20000);setInterval(loadHistorySignals,60000);

@@ -264,14 +264,14 @@ def event_tags(title: str) -> List[str]:
             idx = next((i for i, (s, _e, _w) in enumerate(word_spans) if s >= m.start()), len(word_spans))
             if not negated(idx):
                 tags.add(tag)
-            break
+                break  # only stop once a real (non-negated) hit is found
     # Uppercase-only acronym tags
     for tag in EVENT_TAG_ACRONYMS:
         for m in re.finditer(rf"\b{re.escape(tag)}\b", title):
             idx = next((i for i, (s, _e, _w) in enumerate(word_spans) if s >= m.start()), len(word_spans))
             if not negated(idx):
                 tags.add(tag)
-            break
+                break
     return sorted(tags)
 
 
@@ -283,12 +283,34 @@ class _BodyTooLarge(Exception):
     pass
 
 
+def _decode_strict(body: bytes) -> Optional[str]:
+    """Decode feed bytes as UTF-8/ASCII only.
+
+    A literal ASCII byte check for ``<!DOCTYPE``/``<!ENTITY`` is bypassable
+    when the document declares another encoding (e.g. UTF-16), because the
+    marker bytes differ. Restricting to UTF-8/ASCII (and rejecting bodies
+    whose XML declaration claims anything else) keeps the DTD/entity
+    pre-check sound.
+    """
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    decl = re.match(r"\s*<\?xml[^>]*?encoding=[\"']([\w.\-]+)[\"']", text, re.IGNORECASE)
+    if decl and decl.group(1).lower() not in ("utf-8", "utf8", "us-ascii", "ascii"):
+        return None
+    return text
+
+
 def parse_feed_entries(feed: Dict[str, Any], body: bytes, fetch_time: float) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """Parse one feed body into advisory entries. Returns (entries, error_code)."""
-    if b"<!DOCTYPE" in body or b"<!ENTITY" in body:
+    text = _decode_strict(body)
+    if text is None:
+        return [], "unsupported_encoding"
+    if "<!DOCTYPE" in text or "<!ENTITY" in text:
         return [], "unsafe_xml"
     try:
-        root = ET.fromstring(body)
+        root = ET.fromstring(text)
     except ET.ParseError:
         return [], "malformed_xml"
 
@@ -399,10 +421,13 @@ class NewsService:
             chunks.append(chunk)
         return b"".join(chunks)
 
-    def _acceptable_content_type(self, resp: Any) -> bool:
+    def _acceptable_content_type(self, resp: Any, body: bytes) -> bool:
         ctype = (getattr(resp, "content_type", "") or "").lower()
         if not ctype:
-            return True  # sniffed later by the XML parser
+            # Absent header: sniff the XML declaration / root element instead
+            # of trusting the body blindly.
+            head = body[:512].lstrip().lower()
+            return head.startswith(b"<?xml") or head.startswith(b"<rss") or head.startswith(b"<feed")
         return any(tok in ctype for tok in ("xml", "rss", "atom"))
 
     async def _refresh_one(self, feed: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Optional[str]]:
@@ -415,12 +440,12 @@ class NewsService:
             ) as resp:
                 if resp.status != 200:
                     return [], f"http_{resp.status}"
-                if not self._acceptable_content_type(resp):
-                    return [], "bad_content_type"
                 try:
                     body = await self._read_limited(resp)
                 except _BodyTooLarge:
                     return [], "body_too_large"
+                if not self._acceptable_content_type(resp, body):
+                    return [], "bad_content_type"
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -455,9 +480,9 @@ class NewsService:
                 self._merge(entries)
             if any_ok:
                 self._last_success = self._clock()
+            self._trim_cache()
 
     def _merge(self, entries: List[Dict[str, Any]]) -> None:
-        now = self._clock()
         for entry in entries:
             existing = self._items.get(entry["id"])
             if existing is None:
@@ -473,7 +498,10 @@ class NewsService:
             existing["symbols"] = sorted(set(existing["symbols"]) | set(entry["symbols"]))
             existing["event_tags"] = sorted(set(existing["event_tags"]) | set(entry["event_tags"]))
             existing["scope"] = "symbol" if existing["symbols"] else "market"
-        # retention + cap
+
+    def _trim_cache(self) -> None:
+        """Retention + cap, run once per refresh cycle (not per feed)."""
+        now = self._clock()
         fresh = {k: v for k, v in self._items.items() if v["published_at"] >= now - CACHE_TTL_SECONDS}
         ordered = sorted(fresh.values(), key=lambda i: i["published_at"], reverse=True)
         self._items = {i["id"]: i for i in ordered[:CACHE_MAX_ITEMS]}

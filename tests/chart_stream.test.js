@@ -417,3 +417,40 @@ test('renderNewsItems_rendersUntrustedHeadlineAsTextAndOnlyHttpsLinks', async ()
   // 5. Fixed disclaimer always present
   assert.ok(JSON.stringify(container).includes('Tin tức chỉ để tham khảo'), 'disclaimer shown');
 });
+
+test('createNewsController_aborts_in_flight_fetch_on_symbol_change', async () => {
+  const { createNewsController } = await import('../static/chart_stream.js');
+  let currentSymbol = 'BTCUSDT';
+  const aborted = [];
+  const container = { textContent: '', children: [], appendChild() {} };
+
+  const fetchFn = (url, opts) => new Promise((resolve, reject) => {
+    if (url.includes('symbol=ETHUSDT')) {
+      // resolves late so the BTC fetch is provably still in flight
+      setTimeout(() => resolve({ json: async () => ({ items: [], stale: false, sources_ok: true, source_status: [] }) }), 20);
+    } else {
+      opts.signal.addEventListener('abort', () => {
+        aborted.push(url);
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    }
+  });
+
+  const controller = createNewsController({
+    container,
+    getSymbol: () => currentSymbol,
+    fetchFn,
+  });
+
+  const first = controller.refresh();               // BTCUSDT: hangs in flight
+  await new Promise((r) => setTimeout(r, 5));
+  currentSymbol = 'ETHUSDT';
+  const second = controller.refresh();              // must abort the BTC fetch
+
+  await Promise.all([first, second]);               // aborted promise rejects internally, never throws out
+  assert.deepEqual(aborted, ['/api/news?symbol=BTCUSDT'], 'in-flight BTC fetch must be aborted on symbol change');
+
+  controller.stop();
+});
