@@ -552,3 +552,67 @@ async def test_api_news_rejects_invalid_symbol_and_does_not_fetch_upstream(aioht
         res = await client.get(f"/api/news?symbol={bad}")
         assert res.status == 400, bad
     assert session.calls == 4  # rejected requests never hit upstream
+
+
+@pytest.mark.asyncio
+async def test_news_feed_failure_does_not_block_scan():
+    """Failing RSS refresh must never block or alter the technical scan."""
+    from unittest.mock import MagicMock, patch
+
+    from news_service import NewsService
+    from risk_manager import EnrichedSignal
+    from technical_engine import MarketSignal, PatternType
+
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+
+    class FailingSession:
+        def get(self, url, **kwargs):  # noqa: ARG002
+            raise RuntimeError("feed transport down")
+
+        async def close(self):
+            pass
+
+    state.news_service = NewsService(clock=lambda: 1_794_400_000.0, session_factory=FailingSession)
+    # even a hung/blocking feed must not stall the scan
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
+
+    base_ts = 1794386600000
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": 60000 + i * 10, "high": 60100 + i * 10,
+         "low": 59950 + i * 10, "close": 60020 + i * 10, "volume": 200.0,
+         "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(30)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    state.signal_tracker.save_signal = MagicMock(return_value=99)
+
+    raw = MarketSignal(symbol="BTCUSDT", timeframe="15m", signal_type="LONG",
+                       pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=60100.0,
+                       stop_loss=59600.0, take_profit=61350.0, risk_reward=2.5,
+                       description="Test")
+    enriched = EnrichedSignal(symbol="BTCUSDT", timeframe="15m", signal_type="LONG",
+                              pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=60100.0,
+                              stop_loss=59600.0, take_profit=61350.0, risk_reward=2.5,
+                              description="Test", extra_targets={"tp1": 60850.0, "tp2": 61350.0},
+                              sl_pct=0.008)
+
+    with patch.object(state.technical_engine, "analyze_market", return_value=[raw]):
+        with patch.object(state.risk_manager, "validate_and_enrich", return_value=enriched):
+            with patch.object(state.notifier, "send_chart_alert", AsyncMock(return_value=True)):
+                # news refresh fails hard
+                await state.news_service.refresh()
+                status_before = state.news_service.status()
+                assert status_before["stale"] is True
+                assert status_before["sources_ok"] is False
+
+                # scan still runs and emits the technical signal
+                found = await asyncio.wait_for(state.run_scan(), timeout=10)
+                assert len(found) == 1
+                assert found[0]["symbol"] == "BTCUSDT"
+                assert found[0]["entry_price"] == 60100.0
+                assert found[0]["signal_type"] == "LONG"
+
+                # news service was not consulted by the scan
+                status_after = state.news_service.status()
+                assert status_after["fetched_at"] == status_before["fetched_at"]
