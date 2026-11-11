@@ -95,25 +95,21 @@ Mở `http://127.0.0.1:8766` trong trình duyệt. Nến realtime (OHLC đầy �
 
 ---
 
-## 🔴 Crypto News RSS Advisory — Publisher Terms Gate (BLOCKED, chờ user quyết)
+## ✅ Crypto News RSS Advisory — Publisher Terms Gate (PASSED với nguồn thay thế)
 
-> Trạng thái: **KHÔNG ĐƯỢC IMPLEMENT**. Gate bắt buộc của plan `docs/supergraph/plans/2026-11-10-crypto-news-risk-advisory.md` đang ở trạng thái **unclear → STOP**, chờ user phê duyệt nguồn hoặc cấp phép.
+> Trạng thái: **CHO PHÉP IMPLEMENT**. Gate Task 0 đã chạy (2026-11-11): bộ nguồn gốc CoinDesk/Cointelegraph bị **BLOCKED** (xem lịch sử bên dưới), user đã duyệt chuyển sang bộ nguồn **verified-allow** + **có tác động thị trường thực tế** (không lấy tin vịt).
 
-**Ngày kiểm tra:** 2026-11-11 (Asia/Saigon)
+**Nguồn chính thức (fixed allowlist, chỉ đổi được trong code):**
 
-**Nguồn dự kiến (fixed allowlist):**
-
-| Nguồn | RSS URL | robots.txt | Feed check |
+| Nguồn | URL | Cơ sở pháp lý | Kiểm tra |
 |---|---|---|---|
-| CoinDesk | `https://www.coindesk.com/arc/outboundfeeds/rss` | `User-agent: *` → `Allow:` rỗng; chỉ `Disallow` `/api/`, `/search*`, `/auth/*`, `/layer2/`, `/consensus-magazine/`, `/*/amp`. **Path `/arc/outboundfeeds/rss` KHÔNG bị chặn.** Lưu ý: robots.txt có nhóm rule riêng chặn gần như toàn bộ cho AI crawler (GPTBot, ClaudeBot, CCBot, v.v.) — app poll bằng UA thường, không dùng UA AI-crawler. | ✅ HTTP 200 `application/xml` |
-| Cointelegraph | `https://cointelegraph.com/rss` | `User-Agent: *`; chỉ `Disallow` `/api/`, `/wp-admin/`, `/profile`, tracking params. **Path `/rss` KHÔNG bị chặn.** | ✅ HTTP 200 `application/xml; charset=utf-8` |
+| SEC (Ủy ban Chứng khoán Mỹ) | `https://www.sec.gov/news/pressreleases.xml` | Tác phẩm của chính phủ liên bang Mỹ — public domain theo luật (17 U.S.C. §105) | ✅ HTTP 200 XML |
+| Federal Reserve | `https://www.federalreserve.gov/feeds/press_all.xml` | Tác phẩm chính phủ liên bang Mỹ — public domain | ✅ HTTP 200 XML |
+| Google News (crypto) | `https://news.google.com/rss/search?q=cryptocurrency+OR+bitcoin+OR+ethereum+when:2d&hl=en-US&gl=US&ceid=US:en` | License ghi ngay trong feed: *"made available solely for the purpose of rendering Google News results within a personal feed reader for personal, non-commercial use"* | ✅ HTTP 200 XML |
+| Google News (regulation) | `https://news.google.com/rss/search?q=crypto+regulation+OR+sec+OR+cftc+when:3d&hl=en-US&gl=US&ceid=US:en` | Như trên | ✅ HTTP 200 XML |
 
-**Kết luận theo từng nguồn:**
+**Chống tin vịt:** item từ Google News chỉ được giữ nếu hậu tố nguồn trong title thuộc allowlist tier-1: `Bloomberg, Reuters, CNBC, WSJ, Financial Times, Fortune, Forbes, Barron's, MarketWatch, Benzinga, CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine`. Item SEC/Fed đi thẳng (nguồn chính thức).
 
-* **CoinDesk — UNVERIFIABLE (chặn verify):** Trang terms-of-use (`https://www.coindesk.com/terms-of-use/`, `/terms-of-service/`, `/terms/`) trả **HTTP 429 Vercel Security Checkpoint** cho mọi lần thử (cả `web_fetch` và `curl` với UA trình duyệt). Không đọc được ToS hiện hành → **không thể xác nhận allow**.
-* **Cointelegraph — UNCLEAR:** ToS tại `https://cointelegraph.com/terms-and-privacy` (§3 Content Usage Rights): *"Users may access the Content for personal and informational purposes only. Redistribution, reproduction, automated scraping, or creation of independent content pipelines based on Cointelegraph reputation is strictly prohibited without prior written authorization. Quoting Cointelegraph Content is permitted when it reflects fair use and includes clear attribution to Cointelegraph as the source."*
-  → Trích dẫn headline + summary ngắn (≤600 ký tự) có attribution + link outbound cho dashboard cá nhân **có thể** rơi vào fair-use quoting, nhưng **poll RSS tự động 5 phút/lần** có thể bị coi là "automated scraping / content pipeline" → **vùng xám, không rõ ràng**.
+**Cách dùng tuân thủ license:** chỉ hiển thị headline + tên nguồn + thời gian + link outbound; không lưu full text, không hình ảnh, không summary; text render bằng `textContent`; link HTTPS `rel="noopener noreferrer"`; dashboard local, phi thương mại.
 
-**Quyết định:** Theo đúng acceptance của Task 0 (*"terms are unclear → STOP and ask user; no silent substitution or scraping"*), **dừng toàn bộ Tasks 1–3**. Không thay thẻ nguồn im lặng, không scraping.
-
-**Cần user quyết:** chọn 1 trong các hướng (xem hội thoại) — ví dụ: (a) xin phép viết cả 2 publisher, (b) đổi sang nguồn có ToS rõ ràng cho phép hiển thị headline+summary (ví dụ feed chính chủ có license rõ), (c) chỉ hiển thị **title + link** không summary và coi là fair-use quoting, (d) huỷ feature.
+**Lịch sử gate (2026-11-11):** Sweep 11 nguồn ban đầu — CoinDesk (ToS không verify được, HTTP 429 Vercel checkpoint), Cointelegraph (ToS §3 cấm automated scraping/content pipelines nếu không có authorization), The Block (Cloudflare 403), Bitcoin Magazine (cấm reproduction without written consent), CryptoSlate/U.Today/NewsBTC (cấm tuyên bố republish/scrape), Blockworks (redistribution phải trả phí), Bitcoin.com (cấm automated extraction), Decrypt (không có license grant), Treasury/DOJ/CFTC (feed unreachable/404 từ mạng này). Không nguồn editorial nào verified-allow → chuyển sang SEC + Fed + Google News tier-1 filtered.
