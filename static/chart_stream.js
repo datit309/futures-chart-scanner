@@ -515,4 +515,178 @@ export function filterSymbols(symbols, query, limit = 50) {
   return [...prefixMatches, ...substringMatches].slice(0, limit);
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades};
+// ---------------------------------------------------------------------------
+// News advisory panel — advisory context only; never affects signals.
+// All RSS-derived text is rendered via textContent; anchors are HTTPS-only
+// with target=_blank rel=noopener noreferrer.
+// ---------------------------------------------------------------------------
+
+export const NEWS_DISCLAIMER = 'Tin tức chỉ để tham khảo; có thể cũ, thiếu hoặc không liên quan. Tự mở nguồn kiểm chứng.';
+export const NEWS_POLL_INTERVAL_MS = 5 * 60 * 1000;
+
+const NEWS_CHIP_MAP = {
+  'VĨ MÔ': ['federal reserve', 'fomc', 'inflation', 'interest rate', 'cpi', 'etf flows', 'market liquidation', 'liquidation', 'etf'],
+  'QUY ĐỊNH': ['sec', 'cftc', 'regulation', 'lawsuit', 'ban', 'sanction', 'delisting'],
+  'BẢO MẬT': ['hack', 'exploit', 'security breach', 'insolvency', 'bankruptcy'],
+  'SÀN GIAO DỊCH': ['exchange outage'],
+};
+
+function newsChipsFor(item) {
+  const tags = Array.isArray(item?.event_tags) ? item.event_tags.map((t) => String(t).toLowerCase()) : [];
+  const chips = [];
+  for (const [chip, keys] of Object.entries(NEWS_CHIP_MAP)) {
+    if (tags.some((t) => keys.includes(t))) chips.push(chip);
+  }
+  return chips;
+}
+
+export function formatNewsAge(publishedAt, nowMs) {
+  const ts = Number(publishedAt);
+  if (!Number.isFinite(ts) || ts <= 0) return '—';
+  const diffSec = Math.max(0, Math.floor((nowMs - ts * 1000) / 1000));
+  if (diffSec < 60) return 'vừa xong';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} giờ trước`;
+  const d = new Date(ts * 1000);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function safeArticleUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    return parsed.protocol === 'https:' ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function el(doc, tag, className, text) {
+  const node = doc.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+export function renderNewsItems(container, payload, options = {}) {
+  if (!container) return;
+  const doc = options.document || (typeof document !== 'undefined' ? document : null);
+  if (!doc) return;
+  const nowMs = Number.isFinite(options.now) ? options.now : Date.now();
+  container.textContent = '';
+
+  const data = payload || {};
+  const items = Array.isArray(data.items) ? data.items : [];
+  const stale = data.stale === true;
+  const sourcesOk = data.sources_ok !== false;
+  const sourceStatus = Array.isArray(data.source_status) ? data.source_status : [];
+  const failedSources = sourceStatus.filter((s) => s && s.ok === false);
+
+  if (stale) {
+    container.appendChild(el(doc, 'div', 'news-stale', '⚠️ Dữ liệu tin tức đang cũ (stale) — lần làm mới thành công gần nhất quá 15 phút.'));
+  }
+  if (!sourcesOk && failedSources.length) {
+    const allFailed = failedSources.length === sourceStatus.length && sourceStatus.length > 0;
+    container.appendChild(el(doc, 'div', allFailed ? 'news-error' : 'news-partial',
+      allFailed
+        ? '✖ Không tải được tin từ bất kỳ nguồn nào. Quét kỹ thuật vẫn chạy bình thường.'
+        : `⚠ Một số nguồn tin lỗi: ${failedSources.map((s) => s.source).join(', ')}. Các nguồn còn lại vẫn hiển thị.`));
+  }
+
+  if (!items.length) {
+    container.appendChild(el(doc, 'div', 'news-empty',
+      sourcesOk ? 'Không có tin nổi bật cho cặp đang chọn. Tin vĩ mô và tin của coin đang có tín hiệu sẽ xuất hiện ở đây.'
+                : 'Chưa có tin nào hiển thị được. Hãy thử lại sau hoặc mở nguồn trực tiếp.'));
+    container.appendChild(el(doc, 'div', 'news-disclaimer', NEWS_DISCLAIMER));
+    return;
+  }
+
+  const marketItems = items.filter((i) => i && i.scope === 'market');
+  const symbolItems = items.filter((i) => i && i.scope !== 'market');
+
+  const renderRow = (item) => {
+    const row = el(doc, 'div', 'news-item');
+    const headline = el(doc, 'div', 'news-headline');
+    const safeUrl = safeArticleUrl(item.url);
+    if (safeUrl) {
+      const anchor = el(doc, 'a', 'news-link', item.title || '(không có tiêu đề)');
+      anchor.setAttribute('href', safeUrl);
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+      headline.appendChild(anchor);
+    } else {
+      headline.appendChild(el(doc, 'span', 'news-link-text', item.title || '(không có tiêu đề)'));
+    }
+    row.appendChild(headline);
+
+    const meta = el(doc, 'div', 'news-meta');
+    meta.appendChild(el(doc, 'span', 'news-source', item.source || 'Nguồn'));
+    meta.appendChild(el(doc, 'span', 'news-age', formatNewsAge(item.published_at, nowMs)));
+    if (Array.isArray(item.symbols) && item.symbols.length) {
+      meta.appendChild(el(doc, 'span', 'news-symbol', item.symbols.slice(0, 3).join(' · ')));
+    }
+    row.appendChild(meta);
+
+    const chips = newsChipsFor(item);
+    if (chips.length) {
+      const chipRow = el(doc, 'div', 'news-chips');
+      for (const chip of chips) chipRow.appendChild(el(doc, 'span', 'news-chip', chip));
+      row.appendChild(chipRow);
+    }
+    return row;
+  };
+
+  if (marketItems.length) {
+    container.appendChild(el(doc, 'div', 'news-group', 'VĨ MÔ / THỊ TRƯỜNG'));
+    for (const item of marketItems) container.appendChild(renderRow(item));
+  }
+  if (symbolItems.length) {
+    container.appendChild(el(doc, 'div', 'news-group', 'THEO COIN ĐANG XEM / ĐANG CÓ TÍN HIỆU'));
+    for (const item of symbolItems) container.appendChild(renderRow(item));
+  }
+  container.appendChild(el(doc, 'div', 'news-disclaimer', NEWS_DISCLAIMER));
+}
+
+// Controller: fetch /api/news (cache-only route), render, refresh on symbol
+// change and every NEWS_POLL_INTERVAL_MS; aborts in-flight on symbol change.
+export function createNewsController({ container, getSymbol, fetchFn, now = () => Date.now() }) {
+  let controller = null;
+  let timer = null;
+  let currentSymbol = null;
+
+  async function refresh() {
+    const symbol = getSymbol ? getSymbol() : null;
+    currentSymbol = symbol;
+    if (controller) controller.abort();
+    controller = new AbortController();
+    try {
+      const url = symbol ? `/api/news?symbol=${encodeURIComponent(symbol)}` : '/api/news';
+      const resp = await fetchFn(url, { signal: controller.signal });
+      const payload = await resp.json();
+      if (symbol !== currentSymbol) return; // symbol changed mid-flight
+      renderNewsItems(container, payload, { document: options_document(), now: now() });
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      renderNewsItems(container, { items: [], stale: true, sources_ok: false, source_status: [] },
+        { document: options_document(), now: now() });
+    }
+  }
+
+  function options_document() {
+    return typeof document !== 'undefined' ? document : null;
+  }
+
+  function start() {
+    refresh();
+    timer = setInterval(refresh, NEWS_POLL_INTERVAL_MS);
+  }
+
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (controller) controller.abort();
+  }
+
+  return { refresh, start, stop };
+}
+
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS};

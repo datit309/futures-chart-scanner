@@ -342,3 +342,78 @@ test('filterSymbols filters and ranks symbols by search query', () => {
   // Unknown symbol query returns empty array
   assert.deepEqual(filterSymbols(symbols, 'XYZNONEXISTENT'), []);
 });
+
+// ---------------------------------------------------------------------------
+// News advisory panel (Task 2) — safe rendering contract
+// ---------------------------------------------------------------------------
+
+function fakeNewsElement(tag = 'div') {
+  return {
+    tagName: String(tag).toUpperCase(),
+    children: [],
+    attrs: {},
+    _text: '',
+    set textContent(v) { this._text = String(v); this.children = []; },
+    get textContent() { return this._text; },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    appendChild(c) { this.children.push(c); return c; },
+  };
+}
+
+function walkFake(node, visit) {
+  visit(node);
+  for (const child of node.children) walkFake(child, visit);
+}
+
+test('renderNewsItems_rendersUntrustedHeadlineAsTextAndOnlyHttpsLinks', async () => {
+  const { renderNewsItems } = await import('../static/chart_stream.js');
+  const now = 1_794_400_000_000; // fixed ms clock
+  const container = fakeNewsElement('div');
+  const payload = {
+    items: [
+      { id: '1', source: 'Bloomberg', title: '<img src=x onerror=alert(1)>Bitcoin ETF approved', url: 'https://news.google.com/rss/articles/abc', published_at: now - 5 * 60 * 1000, symbols: ['BTC'], scope: 'symbol', event_tags: ['SEC', 'ETF'] },
+      { id: '2', source: 'Reuters', title: 'Plain http link item', url: 'http://evil.example.com/x', published_at: now - 2 * 3600 * 1000, symbols: [], scope: 'market', event_tags: [] },
+      { id: '3', source: 'CNBC', title: 'No link item', url: '', published_at: now - 26 * 3600 * 1000, symbols: ['ETH'], scope: 'symbol', event_tags: [] },
+    ],
+    fetched_at: now,
+    stale: false,
+    sources_ok: true,
+    source_status: [{ source: 'SEC', ok: true, error_code: null }],
+  };
+  const fakeDoc = { createElement: (tag) => fakeNewsElement(tag) };
+  renderNewsItems(container, payload, { document: fakeDoc, now });
+
+  // 1. Untrusted headline stays text: no IMG element is ever created
+  let sawImg = false;
+  walkFake(container, (n) => { if (n.tagName === 'IMG') sawImg = true; });
+  assert.equal(sawImg, false);
+  const rows = [];
+  walkFake(container, (n) => { if (n.className === 'news-item') rows.push(n); });
+  const row1 = rows.find((r) => JSON.stringify(r).includes('Bitcoin ETF approved'));
+  const row2 = rows.find((r) => JSON.stringify(r).includes('Plain http link item'));
+  const row3 = rows.find((r) => JSON.stringify(r).includes('No link item'));
+  assert.ok(row1 && row2 && row3, 'all three rows rendered');
+  assert.ok(JSON.stringify(row1).includes('<img src=x onerror=alert(1)>Bitcoin ETF approved'),
+    'headline markup must survive as literal text, never parsed as HTML');
+
+  // 2. HTTPS link becomes a safe anchor
+  let anchor = null;
+  walkFake(row1, (n) => { if (n.tagName === 'A') anchor = n; });
+  assert.ok(anchor, 'https item renders an anchor');
+  assert.equal(anchor.attrs.href, 'https://news.google.com/rss/articles/abc');
+  assert.equal(anchor.attrs.target, '_blank');
+  assert.equal(anchor.attrs.rel, 'noopener noreferrer');
+
+  // 3. Non-HTTPS link renders text only, no anchor
+  let anchor2 = null;
+  walkFake(row2, (n) => { if (n.tagName === 'A') anchor2 = n; });
+  assert.equal(anchor2, null, 'http link must not become an anchor');
+
+  // 4. Empty url renders text only
+  let anchor3 = null;
+  walkFake(row3, (n) => { if (n.tagName === 'A') anchor3 = n; });
+  assert.equal(anchor3, null, 'empty url must not become an anchor');
+
+  // 5. Fixed disclaimer always present
+  assert.ok(JSON.stringify(container).includes('Tin tức chỉ để tham khảo'), 'disclaimer shown');
+});

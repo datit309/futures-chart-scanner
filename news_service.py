@@ -18,6 +18,7 @@ Hard invariants:
 """
 import asyncio
 import hashlib
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -33,7 +34,9 @@ import xml.etree.ElementTree as ET
 # Configuration
 # ---------------------------------------------------------------------------
 
-USER_AGENT = "futures-chart-scanner/1.0 (personal research dashboard; local use)"
+# SEC fair-access policy requires a declared User-Agent with a contact address;
+# override per deployment via the NEWS_USER_AGENT environment variable.
+USER_AGENT = os.environ.get("NEWS_USER_AGENT", "futures-chart-scanner admin@example.com")
 PER_FEED_TIMEOUT_SECONDS = 4
 MAX_BODY_BYTES = 512 * 1024  # decompressed read cap
 POLL_INTERVAL_SECONDS = 300  # 5 minutes
