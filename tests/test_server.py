@@ -427,3 +427,128 @@ async def test_api_chart_supports_pagination_with_endtime(aiohttp_client):
     res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m&limit=500&endTime=1700000000000")
     assert res.status == 200
     state.client.get_klines.assert_called_with("BTCUSDT", interval="15m", limit=500, endTime=1700000000000)
+
+
+# ---------------------------------------------------------------------------
+# News advisory API (Task 1) — cache-only, advisory, isolated from scan
+# ---------------------------------------------------------------------------
+
+def _news_rss(items_xml: str) -> bytes:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0"><channel><title>Test</title>'
+        f"{items_xml}</channel></rss>"
+    ).encode()
+
+
+def _gn_item(title: str, link: str) -> str:
+    return (
+        f"<item><title>{title}</title><link>{link}</link>"
+        "<pubDate>Tue, 11 Nov 2026 09:00:01 GMT</pubDate></item>"
+    )
+
+
+async def _app_with_news(aiohttp_client, active_symbols=()):
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+    for sym in active_symbols:
+        state.active_signals[sym] = {"symbol": sym, "status": "OPEN"}
+
+    sec_body = _news_rss(_gn_item("SEC approves first spot Bitcoin ETF - Reuters",
+                                  "https://www.sec.gov/news/press-release/sec-etf"))
+    fed_body = _news_rss(_gn_item("Federal Reserve holds rates as inflation cools - CNBC",
+                                  "https://www.federalreserve.gov/newsevents/pressreleases/hold"))
+    gn_body = _news_rss(
+        _gn_item("Ethereum completes upgrade, ETH jumps - Bloomberg",
+                 "https://news.google.com/rss/articles/eth1")
+        + _gn_item("Solana network outage resolved - CoinDesk",
+                   "https://news.google.com/rss/articles/sol1")
+    )
+
+    class _Resp:
+        def __init__(self, body, content_type="application/xml"):
+            self.status = 200
+            self.content_type = content_type
+            self._body = body
+            self.closed = False
+
+            class _Content:
+                async def iter_chunked(inner_self, n):  # noqa: ARG002
+                    yield body
+
+            self.content = _Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            self.close()
+            return False
+
+        def close(self):
+            self.closed = True
+
+    class _Session:
+        def __init__(self):
+            self.calls = 0
+            self.closed = False
+
+        def get(self, url, **kwargs):  # noqa: ARG002
+            self.calls += 1
+            if "sec.gov" in url:
+                return _Resp(sec_body)
+            if "federalreserve.gov" in url:
+                return _Resp(fed_body)
+            return _Resp(gn_body, "application/rss+xml")
+
+        async def close(self):
+            self.closed = True
+
+    session = _Session()
+    from news_service import NewsService
+    state.news_service = NewsService(clock=lambda: 1_794_400_000.0, session_factory=lambda: session)
+    await state.news_service.refresh()
+    client = await aiohttp_client(app)
+    return client, state, session
+
+
+@pytest.mark.asyncio
+async def test_api_news_returns_global_active_and_selected_symbol_items(aiohttp_client):
+    client, state, session = await _app_with_news(aiohttp_client, active_symbols=("ETHUSDT",))
+
+    res = await client.get("/api/news?symbol=BTCUSDT")
+    assert res.status == 200
+    payload = await res.json()
+    titles = [i["title"] for i in payload["items"]]
+    # selected symbol (BTC via "Bitcoin ETF" alias match)
+    assert any("Bitcoin ETF" in t for t in titles)
+    # active-signal symbol ETH
+    assert any("Ethereum" in t for t in titles)
+    # broad market
+    assert any("Federal Reserve" in t for t in titles)
+    assert payload["stale"] is False
+    assert payload["sources_ok"] is True
+    assert len(payload["items"]) <= 50
+    for item in payload["items"]:
+        assert item["url"].startswith("https://")
+
+    # missing symbol: broad-market + active-signal headlines only
+    res2 = await client.get("/api/news")
+    assert res2.status == 200
+    titles2 = [i["title"] for i in (await res2.json())["items"]]
+    assert any("Federal Reserve" in t for t in titles2)
+    assert any("Ethereum" in t for t in titles2)
+    assert not any("Solana" in t for t in titles2)  # SOL not selected/active -> excluded
+
+    # no upstream fetch on the request path
+    assert session.calls == 4  # only the 4 startup refreshes
+
+
+@pytest.mark.asyncio
+async def test_api_news_rejects_invalid_symbol_and_does_not_fetch_upstream(aiohttp_client):
+    client, state, session = await _app_with_news(aiohttp_client)
+
+    for bad in ("btc", "BTC", "BTCUSD", "../../etc/passwd", "BTCUSDT%20"):
+        res = await client.get(f"/api/news?symbol={bad}")
+        assert res.status == 400, bad
+    assert session.calls == 4  # rejected requests never hit upstream

@@ -14,6 +14,7 @@ from technical_engine import TechnicalEngine
 from risk_manager import RiskManager, EnrichedSignal
 from chart_renderer import ChartRenderer
 from telegram_notifier import TelegramNotifier
+from news_service import NewsService, POLL_INTERVAL_SECONDS as NEWS_POLL_INTERVAL_SECONDS
 from signal_tracker import SignalTracker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -85,6 +86,7 @@ class WebServerState:
         )
         self.last_scan_time: float = 0.0
         self.signal_tracker = SignalTracker(db_path=os.getenv("SIGNALS_DB_PATH", "signals.db"))
+        self.news_service = NewsService()  # advisory headlines only; never touched by run_scan
         self.active_signals: Dict[str, Dict[str, Any]] = {}
         self.top_symbols: List[str] = []
         self.ws_clients: set = set()
@@ -211,6 +213,18 @@ async def handle_api_signals(request: web.Request) -> web.Response:
         "signals": signals,
         "stats": stats,
     })
+
+async def handle_api_news(request: web.Request) -> web.Response:
+    """Advisory news headlines. Cache-only: never fetches upstream here."""
+    state: WebServerState = request.app["state"]
+    symbol = request.query.get("symbol")
+    if symbol is not None and not MARKET_SYMBOL_RE.fullmatch(symbol):
+        return web.json_response({"error": "invalid_symbol"}, status=400)
+    payload = state.news_service.snapshot(
+        symbol=symbol,
+        active_symbols=tuple(state.active_signals.keys()),
+    )
+    return web.json_response(payload)
 
 async def handle_api_signal_chart(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
@@ -660,16 +674,35 @@ async def background_scanner_loop(app: web.Application):
     finally:
         await state.client.close()
 
+async def background_news_loop(app: web.Application):
+    """Advisory headline refresh. Fail-open: never blocks or alters scanning."""
+    state: WebServerState = app["state"]
+    try:
+        while True:
+            try:
+                await state.news_service.refresh()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[News] Refresh failed: {exc}")
+            await asyncio.sleep(NEWS_POLL_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await state.news_service.close()
+
 async def start_background_tasks(app: web.Application):
     app["scanner_task"] = asyncio.create_task(background_scanner_loop(app))
+    app["news_task"] = asyncio.create_task(background_news_loop(app))
 
 async def cleanup_background_tasks(app: web.Application):
-    if "scanner_task" in app:
-        app["scanner_task"].cancel()
-        try:
-            await app["scanner_task"]
-        except asyncio.CancelledError:
-            pass
+    for key in ("scanner_task", "news_task"):
+        if key in app:
+            app[key].cancel()
+            try:
+                await app[key]
+            except asyncio.CancelledError:
+                pass
 
 async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     cfg = config or ScannerConfig.load("config.json")
@@ -682,6 +715,7 @@ async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     app.router.add_get("/api/symbols", handle_api_symbols)
     app.router.add_get("/api/chart", handle_api_chart)
     app.router.add_get("/api/signals", handle_api_signals)
+    app.router.add_get("/api/news", handle_api_news)
     app.router.add_get("/api/signals/{id}/chart", handle_api_signal_chart)
     app.router.add_post("/api/scan", handle_api_scan)
     app.router.add_get("/ws/stream", handle_ws)
