@@ -92,3 +92,28 @@ Mở `http://127.0.0.1:8766` trong trình duyệt. Nến realtime (OHLC đầy �
   ```bash
   ./run.sh --test
   ```
+
+---
+
+## 🔴 Crypto News RSS Advisory — Publisher Terms Gate (BLOCKED, chờ user quyết)
+
+> Trạng thái: **KHÔNG ĐƯỢC IMPLEMENT**. Gate bắt buộc của plan `docs/supergraph/plans/2026-11-10-crypto-news-risk-advisory.md` đang ở trạng thái **unclear → STOP**, chờ user phê duyệt nguồn hoặc cấp phép.
+
+**Ngày kiểm tra:** 2026-11-11 (Asia/Saigon)
+
+**Nguồn dự kiến (fixed allowlist):**
+
+| Nguồn | RSS URL | robots.txt | Feed check |
+|---|---|---|---|
+| CoinDesk | `https://www.coindesk.com/arc/outboundfeeds/rss` | `User-agent: *` → `Allow:` rỗng; chỉ `Disallow` `/api/`, `/search*`, `/auth/*`, `/layer2/`, `/consensus-magazine/`, `/*/amp`. **Path `/arc/outboundfeeds/rss` KHÔNG bị chặn.** Lưu ý: robots.txt có nhóm rule riêng chặn gần như toàn bộ cho AI crawler (GPTBot, ClaudeBot, CCBot, v.v.) — app poll bằng UA thường, không dùng UA AI-crawler. | ✅ HTTP 200 `application/xml` |
+| Cointelegraph | `https://cointelegraph.com/rss` | `User-Agent: *`; chỉ `Disallow` `/api/`, `/wp-admin/`, `/profile`, tracking params. **Path `/rss` KHÔNG bị chặn.** | ✅ HTTP 200 `application/xml; charset=utf-8` |
+
+**Kết luận theo từng nguồn:**
+
+* **CoinDesk — UNVERIFIABLE (chặn verify):** Trang terms-of-use (`https://www.coindesk.com/terms-of-use/`, `/terms-of-service/`, `/terms/`) trả **HTTP 429 Vercel Security Checkpoint** cho mọi lần thử (cả `web_fetch` và `curl` với UA trình duyệt). Không đọc được ToS hiện hành → **không thể xác nhận allow**.
+* **Cointelegraph — UNCLEAR:** ToS tại `https://cointelegraph.com/terms-and-privacy` (§3 Content Usage Rights): *"Users may access the Content for personal and informational purposes only. Redistribution, reproduction, automated scraping, or creation of independent content pipelines based on Cointelegraph reputation is strictly prohibited without prior written authorization. Quoting Cointelegraph Content is permitted when it reflects fair use and includes clear attribution to Cointelegraph as the source."*
+  → Trích dẫn headline + summary ngắn (≤600 ký tự) có attribution + link outbound cho dashboard cá nhân **có thể** rơi vào fair-use quoting, nhưng **poll RSS tự động 5 phút/lần** có thể bị coi là "automated scraping / content pipeline" → **vùng xám, không rõ ràng**.
+
+**Quyết định:** Theo đúng acceptance của Task 0 (*"terms are unclear → STOP and ask user; no silent substitution or scraping"*), **dừng toàn bộ Tasks 1–3**. Không thay thẻ nguồn im lặng, không scraping.
+
+**Cần user quyết:** chọn 1 trong các hướng (xem hội thoại) — ví dụ: (a) xin phép viết cả 2 publisher, (b) đổi sang nguồn có ToS rõ ràng cho phép hiển thị headline+summary (ví dụ feed chính chủ có license rõ), (c) chỉ hiển thị **title + link** không summary và coi là fair-use quoting, (d) huỷ feature.
