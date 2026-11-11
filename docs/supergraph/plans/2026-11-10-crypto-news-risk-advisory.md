@@ -35,7 +35,7 @@ Show public-RSS crypto headlines and conservative “news event” context for b
 
 ## Task 1: Add bounded public RSS fetch, safe parsing, cache and API endpoint
 Wave: 1
-Status: pending
+Status: completed (commit 360dffc)
 Risk: medium
 Dependencies: Task 0 (publisher terms allow recorded)
 Model: pro
@@ -86,7 +86,7 @@ Checkpoint:
 
 ## Task 2: Add news panel with Vietnamese UI labels
 Wave: 2
-Status: pending
+Status: completed (commit 06b02ab)
 Risk: medium
 Dependencies: Task 1
 Model: inherit
@@ -160,7 +160,7 @@ Checkpoint:
 
 ## Task 3: Verify outage isolation and document RSS advisory limits
 Wave: 3
-Status: pending
+Status: completed (commit 667a9eb)
 Risk: low
 Dependencies: Task 1, Task 2
 Model: inherit
