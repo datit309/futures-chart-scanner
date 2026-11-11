@@ -126,6 +126,7 @@ export function formatHistoryTrades(signals, limit = 15, maxAgeSeconds = 0, nowS
 
     shapes.push({
       key: `hist-${t.id || entryTime}-${entry}`,
+      signal: t,
       point: { time: entryTime, price: markerPrice },
       options: {
         shape: isShort ? 'arrow_down' : 'arrow_up',
@@ -286,6 +287,7 @@ export function formatPositionShape(signal, lastCandle) {
 
   return {
     signalArrow: {
+      signal,
       point: { time: tStart, price: arrowPrice },
       options: {
         shape: isShort ? 'arrow_down' : 'arrow_up',
@@ -299,6 +301,7 @@ export function formatPositionShape(signal, lastCandle) {
       }
     },
     entryLine: {
+      signal,
       points: [{ time: tStart, price: entry }, { time: tEnd, price: entry }],
       options: {
         shape: 'trend_line',
@@ -316,6 +319,7 @@ export function formatPositionShape(signal, lastCandle) {
       }
     },
     tpLine: {
+      signal,
       points: [{ time: tStart, price: tp }, { time: tEnd, price: tp }],
       options: {
         shape: 'trend_line',
@@ -333,6 +337,7 @@ export function formatPositionShape(signal, lastCandle) {
       }
     },
     slLine: {
+      signal,
       points: [{ time: tStart, price: sl }, { time: tEnd, price: sl }],
       options: {
         shape: 'trend_line',
@@ -350,6 +355,7 @@ export function formatPositionShape(signal, lastCandle) {
       }
     },
     profitBox: {
+      signal,
       points: [{ time: tStart, price: isShort ? entry : tp }, { time: tEnd, price: isShort ? tp : entry }],
       options: {
         shape: 'rectangle',
@@ -364,6 +370,7 @@ export function formatPositionShape(signal, lastCandle) {
       }
     },
     stopBox: {
+      signal,
       points: [{ time: tStart, price: isShort ? sl : entry }, { time: tEnd, price: isShort ? entry : sl }],
       options: {
         shape: 'rectangle',
@@ -495,6 +502,50 @@ export function formatSignalPlainExplanation(signal) {
   }
 
   return isLong ? '🟢 Kèo Mua (LONG) theo cấu trúc thị trường' : '🔴 Kèo Bán (SHORT) theo cấu trúc thị trường';
+}
+
+export function formatSignalTooltipData(signal) {
+  if (!signal) return null;
+  const isShort = (signal.signal_type || '').toUpperCase() === 'SHORT';
+  const entry = Number(signal.entry_price || 0);
+  const sl = Number(signal.stop_loss || 0);
+  const tp = Number(signal.tp2 || signal.take_profit || signal.tp1 || 0);
+  const rr = Number(signal.risk_reward || 2.0);
+  const status = (signal.status || 'OPEN').toUpperCase();
+  const desc = signal.description || signal.pattern || 'Market Setup';
+  const plain = formatSignalPlainExplanation(signal);
+
+  const slPct = entry > 0 && sl > 0 ? (((sl - entry) / entry) * 100).toFixed(2) : '0.00';
+  const tpPct = entry > 0 && tp > 0 ? (((tp - entry) / entry) * 100).toFixed(2) : '0.00';
+
+  const pnlR = Number(signal.pnl_r || 0);
+  let pnlText = '';
+  if (status === 'WIN') {
+    pnlText = `WIN +${pnlR >= 0 ? pnlR.toFixed(1) : '2.2'}R`;
+  } else if (status === 'LOSS') {
+    pnlText = `LOSS ${pnlR.toFixed(1)}R`;
+  } else if (status === 'EXPIRED') {
+    pnlText = `EXPIRED ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`;
+  }
+
+  const fmt = (x) => Number(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+  return {
+    title: isShort ? '🔴 VÀO LỆNH SHORT' : '🟢 VÀO LỆNH LONG',
+    badgeClass: isShort ? 'badge-short' : 'badge-long',
+    symbolText: `${signal.symbol || ''} ${signal.timeframe || '15m'}`.trim(),
+    pattern: signal.pattern || '',
+    description: desc,
+    plainExplanation: plain,
+    entryPrice: `$${fmt(entry)}`,
+    stopLoss: `$${fmt(sl)} (${slPct}%)`,
+    takeProfit: `$${fmt(tp)} (+${Math.abs(Number(tpPct)).toFixed(2)}%)`,
+    riskReward: `1:${rr.toFixed(1)}`,
+    status,
+    pnlText,
+    isShort,
+    rawSignal: signal,
+  };
 }
 
 export function filterSymbols(symbols, query, limit = 50) {
@@ -693,4 +744,4 @@ export function createNewsController({ container, getSymbol, fetchFn, now = () =
   return { refresh, start, stop };
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData};

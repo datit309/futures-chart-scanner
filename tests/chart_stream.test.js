@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -481,3 +481,46 @@ test('createNewsController_aborts_in_flight_fetch_on_symbol_change', async () =>
 
   controller.stop();
 });
+
+test('formatSignalTooltipData extracts comprehensive signal explanation and metrics', () => {
+  const signal = {
+    symbol: 'BTCUSDT',
+    timeframe: '15m',
+    signal_type: 'LONG',
+    pattern: 'TRENDLINE_BREAKOUT',
+    description: 'Bullish Breakout over Resistance Trendline (10 touches)',
+    entry_price: 73999.95,
+    stop_loss: 73200.0,
+    tp1: 74800.0,
+    tp2: 75760.0,
+    take_profit: 75760.0,
+    risk_reward: 2.2,
+    status: 'OPEN',
+    created_at: 1700000000,
+  };
+
+  const tooltip = formatSignalTooltipData(signal);
+  assert.ok(tooltip, 'Tooltip data must be generated');
+  assert.equal(tooltip.symbolText, 'BTCUSDT 15m');
+  assert.ok(tooltip.title.includes('LONG'));
+  assert.ok(tooltip.description.includes('Breakout'));
+  assert.ok(tooltip.plainExplanation.includes('Phá vỡ cản') || tooltip.plainExplanation.includes('Breakout'));
+  assert.ok(tooltip.entryPrice.includes('73,999.95') || tooltip.entryPrice.includes('73999'));
+  assert.ok(tooltip.stopLoss.includes('73,200') || tooltip.stopLoss.includes('73200'));
+  assert.ok(tooltip.takeProfit.includes('75,760') || tooltip.takeProfit.includes('75760'));
+  assert.ok(tooltip.riskReward.includes('2.2'));
+
+  // Test position shapes attach signal object for hover hit-testing
+  const lastCandle = { time: 1700000, high: 74100, low: 73900 };
+  const shapes = formatPositionShape(signal, lastCandle);
+  assert.equal(shapes.signalArrow.signal, signal);
+  assert.equal(shapes.entryLine.signal, signal);
+  assert.equal(shapes.tpLine.signal, signal);
+  assert.equal(shapes.slLine.signal, signal);
+
+  // Test history trades attach signal object for hover hit-testing
+  const closedSignal = { ...signal, status: 'WIN' };
+  const historyTrades = formatHistoryTrades([closedSignal]);
+  assert.equal(historyTrades[0].signal, closedSignal);
+});
+

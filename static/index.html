@@ -153,6 +153,103 @@
 .range-btn:hover{color:#fff;background:#182835}
 .range-btn.active{background:#1c2d3a;color:var(--cyan);font-weight:700}
 
+/* Floating Signal Reason Tooltip on TradingView Chart */
+.signal-chart-tooltip{
+  position:absolute;
+  top:14px;
+  left:16px;
+  max-width:390px;
+  width:calc(100% - 32px);
+  background:rgba(10,16,24,0.95);
+  backdrop-filter:blur(10px);
+  border:1px solid #283e50;
+  border-radius:6px;
+  box-shadow:0 16px 36px rgba(0,0,0,0.85);
+  padding:12px 14px 14px 14px;
+  z-index:99;
+  pointer-events:none;
+  transition:opacity .15s ease, transform .15s ease;
+  transform:translateY(0);
+}
+.signal-chart-tooltip.hidden{
+  opacity:0;
+  pointer-events:none;
+  transform:translateY(-6px);
+  display:none!important;
+}
+.sct-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:8px;
+  border-bottom:1px solid #1a2a38;
+  padding-bottom:7px;
+}
+.sct-badge{
+  font:700 11px var(--mono);
+  padding:3px 8px;
+  border-radius:3px;
+  letter-spacing:.02em;
+}
+.sct-badge.badge-long{
+  background:rgba(0,214,154,0.18);
+  color:var(--green);
+  border:1px solid rgba(0,214,154,0.5);
+}
+.sct-badge.badge-short{
+  background:rgba(255,94,110,0.18);
+  color:var(--red);
+  border:1px solid rgba(255,94,110,0.5);
+}
+.sct-symbol{
+  font:600 10.5px var(--mono);
+  color:#94a3b8;
+}
+.sct-reason-box{
+  margin-bottom:9px;
+}
+.sct-reason-label{
+  font:9px var(--mono);
+  color:var(--cyan);
+  text-transform:uppercase;
+  letter-spacing:.12em;
+  margin-bottom:3px;
+}
+.sct-reason-desc{
+  font:700 12px var(--sans);
+  color:#ffffff;
+  line-height:1.4;
+  margin-bottom:5px;
+}
+.sct-plain-exp{
+  font:11.5px var(--sans);
+  color:#cbd5e1;
+  line-height:1.45;
+  background:rgba(15,23,42,0.7);
+  padding:6px 9px;
+  border-radius:4px;
+  border-left:3px solid var(--cyan);
+}
+.sct-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px 12px;
+  font:10px var(--mono);
+  border-top:1px solid #182633;
+  padding-top:7px;
+}
+.sct-metric{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  color:var(--muted);
+}
+.sct-metric b{
+  color:var(--text);
+  font-weight:600;
+}
+
 .modal-overlay{position:fixed;inset:0;background:rgba(5,9,14,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:99999;padding:16px}
 .modal-card{max-width:860px;width:100%;max-height:88vh;overflow-y:auto;background:#0d151d;border:1px solid #233644;border-radius:6px;box-shadow:0 24px 60px rgba(0,0,0,0.7);padding:24px}
 .modal-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #1c2b37;padding-bottom:14px;margin-bottom:18px}
@@ -248,7 +345,27 @@
     <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
   </div>
   <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
-</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap"><div id="tvChartContainer"></div><div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div></div><div class="chart-cheat-sheet">
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
+  <div id="tvChartContainer"></div>
+  <div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div>
+  <div class="signal-chart-tooltip hidden" id="signalChartTooltip">
+    <div class="sct-head">
+      <span class="sct-badge" id="sctBadge">🟢 VÀO LỆNH LONG</span>
+      <span class="sct-symbol" id="sctSymbol">BTCUSDT 15m</span>
+    </div>
+    <div class="sct-reason-box">
+      <div class="sct-reason-label">LÝ DO VÀO LỆNH (SETUP):</div>
+      <div class="sct-reason-desc" id="sctReasonDesc">—</div>
+      <div class="sct-plain-exp" id="sctPlainExp">—</div>
+    </div>
+    <div class="sct-grid">
+      <div class="sct-metric"><span>ENTRY</span><b id="sctEntry">—</b></div>
+      <div class="sct-metric"><span>STOP LOSS</span><b id="sctSl" style="color:var(--red)">—</b></div>
+      <div class="sct-metric"><span>TAKE PROFIT</span><b id="sctTp" style="color:var(--green)">—</b></div>
+      <div class="sct-metric"><span>R:R RATIO</span><b id="sctRr" style="color:var(--cyan)">—</b></div>
+    </div>
+  </div>
+</div><div class="chart-cheat-sheet">
   <div class="cheat-head">
     <div class="cheat-title">
       <span>📚 BẢNG CHÚ THÍCH KÝ HIỆU (DÀNH CHO NGƯỜI MỚI CHƯA BIẾT TRADE)</span>
@@ -389,10 +506,10 @@
 
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades} from '/static/chart_stream.js?v=lina1';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,formatSignalTooltipData} from '/static/chart_stream.js?v=lina1';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null};
+  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null,shapeSignalMap:new Map(),crosshairNearSignal:false,activeTooltipSignal:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -408,6 +525,40 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     return Object.fromEntries($$('.overlay-controls input').map(x=>[x.dataset.overlay,x.checked]));
   }
 
+  function showSignalTooltip(signal){
+    if(!signal)return;
+    const data=formatSignalTooltipData(signal);
+    if(!data)return;
+    const tt=$('#signalChartTooltip');
+    if(!tt)return;
+
+    const b=$('#sctBadge');
+    if(b){b.className=`sct-badge ${data.badgeClass}`;b.textContent=data.title;}
+    const sym=$('#sctSymbol');
+    if(sym)sym.textContent=data.symbolText;
+    const desc=$('#sctReasonDesc');
+    if(desc)desc.textContent=data.description;
+    const exp=$('#sctPlainExp');
+    if(exp)exp.textContent=data.plainExplanation;
+    const ent=$('#sctEntry');
+    if(ent)ent.textContent=data.entryPrice;
+    const sl=$('#sctSl');
+    if(sl)sl.textContent=data.stopLoss;
+    const tp=$('#sctTp');
+    if(tp)tp.textContent=data.takeProfit;
+    const rr=$('#sctRr');
+    if(rr)rr.textContent=data.riskReward;
+
+    tt.classList.remove('hidden');
+    state.activeTooltipSignal=signal;
+  }
+
+  function hideSignalTooltip(){
+    const tt=$('#signalChartTooltip');
+    if(tt)tt.classList.add('hidden');
+    state.activeTooltipSignal=null;
+  }
+
   function clearTradingViewDrawings(){
     if(!state.widget||!state.chartReady)return;
     try{
@@ -418,6 +569,8 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       try{c.removeAllShapes();}catch(e){}
       state.orderLines.forEach(l=>{try{l.remove();}catch(e){}});
       state.orderLines=[];
+      if(state.shapeSignalMap)state.shapeSignalMap.clear();
+      hideSignalTooltip();
     }catch(e){console.warn('Error clearing shapes:',e);}
   }
 
@@ -457,7 +610,8 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       // 3b. Closed-trade history for the selected symbol (outcome arrows at entry positions)
       if(o.history&&state.historySignals?.length){
         formatHistoryTrades(state.historySignals).forEach(sh=>{
-          c.createShape(sh.point,sh.options);
+          const sid=c.createShape(sh.point,sh.options);
+          if(sid&&sh.signal)state.shapeSignalMap.set(sid,sh.signal);
         });
       }
 
@@ -475,12 +629,15 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         }
         const posShapes=formatPositionShape(sig,targetCandle);
         if(posShapes){
-          if(posShapes.profitBox) c.createMultipointShape(posShapes.profitBox.points, posShapes.profitBox.options);
-          if(posShapes.stopBox) c.createMultipointShape(posShapes.stopBox.points, posShapes.stopBox.options);
-          if(posShapes.signalArrow) c.createShape(posShapes.signalArrow.point, posShapes.signalArrow.options);
-          if(posShapes.entryLine) c.createMultipointShape(posShapes.entryLine.points, posShapes.entryLine.options);
-          if(posShapes.tpLine) c.createMultipointShape(posShapes.tpLine.points, posShapes.tpLine.options);
-          if(posShapes.slLine) c.createMultipointShape(posShapes.slLine.points, posShapes.slLine.options);
+          const pBoxId = posShapes.profitBox ? c.createMultipointShape(posShapes.profitBox.points, posShapes.profitBox.options) : null;
+          const sBoxId = posShapes.stopBox ? c.createMultipointShape(posShapes.stopBox.points, posShapes.stopBox.options) : null;
+          const arrowId = posShapes.signalArrow ? c.createShape(posShapes.signalArrow.point, posShapes.signalArrow.options) : null;
+          const eLineId = posShapes.entryLine ? c.createMultipointShape(posShapes.entryLine.points, posShapes.entryLine.options) : null;
+          const tpLineId = posShapes.tpLine ? c.createMultipointShape(posShapes.tpLine.points, posShapes.tpLine.options) : null;
+          const slLineId = posShapes.slLine ? c.createMultipointShape(posShapes.slLine.points, posShapes.slLine.options) : null;
+          [pBoxId, sBoxId, arrowId, eLineId, tpLineId, slLineId].forEach(sid=>{
+            if(sid)state.shapeSignalMap.set(sid,sig);
+          });
         }
       }
     }catch(err){console.warn('renderTradingViewDrawings error:',err);}
@@ -588,6 +745,61 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
         applyTimeRange(state.rangeDays||'3');
       }
 
+      try{
+        const c=state.widget.chart();
+        if(c.onHoveredSourceChanged){
+          c.onHoveredSourceChanged().subscribe(null,(sourceId)=>{
+            if(sourceId&&state.shapeSignalMap&&state.shapeSignalMap.has(sourceId)){
+              showSignalTooltip(state.shapeSignalMap.get(sourceId));
+            }else if(!state.crosshairNearSignal){
+              hideSignalTooltip();
+            }
+          });
+        }
+      }catch(err){console.warn('onHoveredSourceChanged error:',err);}
+
+      try{
+        const c=state.widget.chart();
+        if(c.crossHairMoved){
+          c.crossHairMoved().subscribe(null,({time,price})=>{
+            if(!time||!price){
+              state.crosshairNearSignal=false;
+              if(!state.activeTooltipSignal)hideSignalTooltip();
+              return;
+            }
+            const activeSig=state.chartPayload?.signal;
+            if(activeSig&&activeSig.entry_price){
+              const sigTime=Math.floor(activeSig.timestamp||0);
+              const entry=Number(activeSig.entry_price);
+              const sl=Number(activeSig.stop_loss);
+              const tp=Number(activeSig.tp2||activeSig.take_profit||activeSig.tp1);
+              const minP=Math.min(entry,sl,tp);
+              const maxP=Math.max(entry,sl,tp);
+              if(sigTime>0&&Math.abs(time-sigTime)<=900*4&&price>=minP*0.997&&price<=maxP*1.003){
+                state.crosshairNearSignal=true;
+                showSignalTooltip(activeSig);
+                return;
+              }
+            }
+
+            if(state.historySignals?.length){
+              const match=state.historySignals.find(s=>{
+                const st=Math.floor(Number(s.created_at)||0);
+                const ep=Number(s.entry_price)||0;
+                return st>0&&Math.abs(time-st)<=900*2&&ep>0&&Math.abs(price-ep)/ep<=0.02;
+              });
+              if(match){
+                state.crosshairNearSignal=true;
+                showSignalTooltip(match);
+                return;
+              }
+            }
+
+            state.crosshairNearSignal=false;
+            hideSignalTooltip();
+          });
+        }
+      }catch(err){console.warn('crossHairMoved error:',err);}
     });
   }
 
@@ -618,7 +830,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     });
   }
 
-  function renderSignalList(){const box=$('#signalList');const isHistory=state.feedTab==='HISTORY';const source=isHistory?(state.historySignals||[]):state.signals;const filtered=filterSignals(source,state.feedTab,isHistory?state.symbol:null);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>${isHistory?` cho <b>${state.symbol}</b>`:''}.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}})}
+  function renderSignalList(){const box=$('#signalList');const isHistory=state.feedTab==='HISTORY';const source=isHistory?(state.historySignals||[]):state.signals;const filtered=filterSignals(source,state.feedTab,isHistory?state.symbol:null);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>${isHistory?` cho <b>${state.symbol}</b>`:''}.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>{e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}};e.onmouseenter=()=>{const matched=source.find(s=>String(s.id)===String(e.dataset.id));if(matched)showSignalTooltip(matched);};e.onmouseleave=()=>{if(!state.crosshairNearSignal)hideSignalTooltip();};});}
 
   async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
 
