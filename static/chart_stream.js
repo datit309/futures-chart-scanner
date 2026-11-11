@@ -530,6 +530,26 @@ export function formatSignalTooltipData(signal) {
 
   const fmt = (x) => Number(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
+  const htfRaw = (signal.htf_bias || 'NEUTRAL').toUpperCase();
+  let htfBiasText = '1H ĐI NGANG (RANGING)';
+  if (htfRaw === 'BULLISH') htfBiasText = '1H TĂNG (BULLISH)';
+  else if (htfRaw === 'BEARISH') htfBiasText = '1H GIẢM (BEARISH)';
+
+  const frNum = Number(signal.funding_rate);
+  const fundingRateText = Number.isFinite(frNum) && frNum !== 0
+    ? `${(frNum * 100).toFixed(4)}%`
+    : '0.0100%';
+
+  const oiNum = Number(signal.open_interest);
+  const openInterestText = Number.isFinite(oiNum) && oiNum > 0
+    ? `${fmt(oiNum)}`
+    : '—';
+
+  const beReached = Boolean(signal.breakeven_reached);
+  const breakevenText = beReached
+    ? 'ĐÃ DỜI HÒA VỐN (0 RỦI RO)'
+    : 'CHỜ HIT TP1 (1.5R)';
+
   return {
     title: isShort ? '🔴 VÀO LỆNH SHORT' : '🟢 VÀO LỆNH LONG',
     badgeClass: isShort ? 'badge-short' : 'badge-long',
@@ -544,6 +564,11 @@ export function formatSignalTooltipData(signal) {
     status,
     pnlText,
     isShort,
+    htfBiasText,
+    fundingRateText,
+    openInterestText,
+    breakevenText,
+    beReached,
     rawSignal: signal,
   };
 }

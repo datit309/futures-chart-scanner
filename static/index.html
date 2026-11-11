@@ -363,6 +363,9 @@
       <div class="sct-metric"><span>STOP LOSS</span><b id="sctSl" style="color:var(--red)">—</b></div>
       <div class="sct-metric"><span>TAKE PROFIT</span><b id="sctTp" style="color:var(--green)">—</b></div>
       <div class="sct-metric"><span>R:R RATIO</span><b id="sctRr" style="color:var(--cyan)">—</b></div>
+      <div class="sct-metric"><span>1H TREND</span><b id="sctHtf">—</b></div>
+      <div class="sct-metric"><span>FUNDING</span><b id="sctFunding">—</b></div>
+      <div class="sct-metric" style="grid-column:1/-1"><span>TRẠNG THÁI</span><b id="sctBreakeven" style="color:var(--amber)">—</b></div>
     </div>
   </div>
 </div><div class="chart-cheat-sheet">
@@ -548,6 +551,18 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     if(tp)tp.textContent=data.takeProfit;
     const rr=$('#sctRr');
     if(rr)rr.textContent=data.riskReward;
+    const htf=$('#sctHtf');
+    if(htf){
+      htf.textContent=data.htfBiasText;
+      htf.style.color=data.htfBiasText.includes('TĂNG')?'var(--green)':(data.htfBiasText.includes('GIẢM')?'var(--red)':'var(--muted)');
+    }
+    const fd=$('#sctFunding');
+    if(fd)fd.textContent=data.fundingRateText;
+    const be=$('#sctBreakeven');
+    if(be){
+      be.textContent=data.breakevenText;
+      be.style.color=data.beReached?'var(--green)':'var(--amber)';
+    }
 
     tt.classList.remove('hidden');
     state.activeTooltipSignal=signal;
@@ -830,7 +845,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     });
   }
 
-  function renderSignalList(){const box=$('#signalList');const isHistory=state.feedTab==='HISTORY';const source=isHistory?(state.historySignals||[]):state.signals;const filtered=filterSignals(source,state.feedTab,isHistory?state.symbol:null);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>${isHistory?` cho <b>${state.symbol}</b>`:''}.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span></div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span></div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>{e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}};e.onmouseenter=()=>{const matched=source.find(s=>String(s.id)===String(e.dataset.id));if(matched)showSignalTooltip(matched);};e.onmouseleave=()=>{if(!state.crosshairNearSignal)hideSignalTooltip();};});}
+  function renderSignalList(){const box=$('#signalList');const isHistory=state.feedTab==='HISTORY';const source=isHistory?(state.historySignals||[]):state.signals;const filtered=filterSignals(source,state.feedTab,isHistory?state.symbol:null);if(!filtered.length){box.innerHTML=`<div class="signal-empty">Chưa có tín hiệu trong mục <b>${state.feedTab}</b>${isHistory?` cho <b>${state.symbol}</b>`:''}.</div>`;return}box.innerHTML=filtered.map(s=>{const badge=formatOutcomeBadge(s);const isShort=s.signal_type==='SHORT';return `<div class="signal" data-id="${s.id||''}" data-symbol="${s.symbol}"><div class="sig-row"><span class="sig-pair">${s.symbol} <small style="color:var(--muted);font-size:10px">${s.timeframe||''}</small></span><div><span class="badge ${isShort?'short':''}">${s.signal_type}</span><span class="badge ${badge.className}" style="margin-left:4px">${badge.text}</span>${s.breakeven_reached?`<span class="badge" style="margin-left:4px;color:var(--green);border-color:var(--green)">BE</span>`:''}</div></div><div class="sig-desc">${s.description||s.pattern||'Market setup'}</div>${formatSignalPlainExplanation(s)?`<div class="sig-plain" style="font-size:10.5px;color:var(--cyan);margin-bottom:6px;line-height:1.35;background:rgba(101,207,255,.07);padding:4px 6px;border-radius:2px">${formatSignalPlainExplanation(s)}</div>`:''}<div class="sig-price"><span>ENTRY <b>${fmt(s.entry_price)}</b></span><span>R:R <b>1:${Number(s.risk_reward||2).toFixed(1)}</b></span>${s.htf_bias&&s.htf_bias!=='NEUTRAL'?`<span style="color:${s.htf_bias==='BULLISH'?'var(--green)':'var(--red)'}">${s.htf_bias}</span>`:''}</div>${s.status!=='OPEN'&&s.exit_price?`<div class="sig-meta"><span>EXIT: ${fmt(s.exit_price)}</span><span>PnL: <b style="color:${s.status==='WIN'?'var(--green)':'var(--red)'}">${s.pnl_pct?(s.pnl_pct>0?'+':'')+(s.pnl_pct*100).toFixed(2)+'%':''}</b></span></div>`:''}</div>`}).join('');$$('.signal').forEach(e=>{e.onclick=async()=>{const id=e.dataset.id;const sym=e.dataset.symbol;if(id&&e.querySelector('.badge-win,.badge-loss')){await loadHistoricalSignalChart(id,sym)}else{await selectSymbol(sym)}};e.onmouseenter=()=>{const matched=source.find(s=>String(s.id)===String(e.dataset.id));if(matched)showSignalTooltip(matched);};e.onmouseleave=()=>{if(!state.crosshairNearSignal)hideSignalTooltip();};});}
 
   async function loadHistoricalSignalChart(id,symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=true;$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=symbol;try{const r=await fetch(`/api/signals/${id}/chart`);if(!r.ok)throw Error('fetch '+r.status);const d=await r.json();if(!d.candles?.length){state.viewingHistorical=false;return selectSymbol(symbol)}state.symbol=symbol;$('#symbolSelect').value=symbol;state.chartPayload=d;if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),()=>{renderTradingViewDrawings(d);});}const last=d.candles.at(-1);$('#chartPrice').textContent=fmt(d.signal.exit_price||last.close);const badge=formatOutcomeBadge(d.signal);$('#connection').textContent=d.signal.status;$('#connection').style.color=badge.color;$('#lastUpdateAge').textContent=`TRADE #${id} (${d.signal.status})`;toast(`Xem lại kèo #${id} · ${symbol} (${d.signal.status})`)}catch(e){console.warn('Fallback to live chart',e);state.viewingHistorical=false;selectSymbol(symbol)}finally{$('#chartLoading').classList.add('hidden')}}
 

@@ -524,3 +524,30 @@ test('formatSignalTooltipData extracts comprehensive signal explanation and metr
   assert.equal(historyTrades[0].signal, closedSignal);
 });
 
+test('formatSignalTooltipData includes HTF trend and order flow metrics', () => {
+  const signal = {
+    symbol: 'ETHUSDT',
+    timeframe: '15m',
+    signal_type: 'SHORT',
+    pattern: 'TRENDLINE_BREAKOUT',
+    description: 'Bearish Breakdown under Support Trendline (5 touches)',
+    entry_price: 3000.0,
+    stop_loss: 3060.0,
+    tp1: 2900.0,
+    tp2: 2850.0,
+    risk_reward: 2.5,
+    status: 'OPEN',
+    created_at: 1700000000,
+    htf_bias: 'BEARISH',
+    funding_rate: 0.0001,
+    open_interest: 450000.0,
+    breakeven_reached: 1,
+  };
+
+  const tooltip = formatSignalTooltipData(signal);
+  assert.ok(tooltip.htfBiasText.includes('1H GIẢM') || tooltip.htfBiasText.includes('BEAR'));
+  assert.ok(tooltip.fundingRateText.includes('0.0100%'));
+  assert.ok(tooltip.breakevenText.includes('HÒA VỐN') || tooltip.breakevenText.includes('0 RỦI RO'));
+});
+
+
