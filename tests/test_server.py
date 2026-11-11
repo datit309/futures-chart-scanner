@@ -451,8 +451,7 @@ def _gn_item(title: str, link: str) -> str:
 async def _app_with_news(aiohttp_client, active_symbols=()):
     app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
     state = app["state"]
-    for sym in active_symbols:
-        state.active_signals[sym] = {"symbol": sym, "status": "OPEN"}
+    state.active_signals = {sym: {"symbol": sym, "status": "OPEN"} for sym in active_symbols}
 
     sec_body = _news_rss(_gn_item("SEC approves first spot Bitcoin ETF - Reuters",
                                   "https://www.sec.gov/news/press-release/sec-etf"))
@@ -616,3 +615,40 @@ async def test_news_feed_failure_does_not_block_scan():
                 # news service was not consulted by the scan
                 status_after = state.news_service.status()
                 assert status_after["fetched_at"] == status_before["fetched_at"]
+
+
+@pytest.mark.asyncio
+async def test_run_scan_enforces_single_active_position_per_symbol():
+    """If a symbol currently has an active OPEN position, run_scan must skip generating new signals for it."""
+    from unittest.mock import MagicMock, patch
+    from risk_manager import EnrichedSignal
+    from technical_engine import MarketSignal, PatternType
+
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+
+    # Mark BTCUSDT as having an OPEN position
+    state.active_signals["BTCUSDT"] = {"symbol": "BTCUSDT", "status": "OPEN", "id": 10}
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
+
+    base_ts = 1794386600000
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": 60000 + i * 10, "high": 60100 + i * 10,
+         "low": 59950 + i * 10, "close": 60020 + i * 10, "volume": 200.0,
+         "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(30)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    state.signal_tracker.evaluate_open_signals = MagicMock(return_value=[])
+
+    raw = MarketSignal(symbol="BTCUSDT", timeframe="15m", signal_type="SHORT",
+                       pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=60100.0,
+                       stop_loss=60600.0, take_profit=59000.0, risk_reward=2.2,
+                       description="Opposing Short")
+
+    with patch.object(state.technical_engine, "analyze_market", return_value=[raw]) as mock_analyze:
+        found = await state.run_scan()
+        # Should not generate a new signal for BTCUSDT because an OPEN position is already active
+        assert len(found) == 0
+        mock_analyze.assert_not_called()
+

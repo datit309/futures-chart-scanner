@@ -188,3 +188,71 @@ def test_breakeven_protection_on_tp1_hit(tracker):
     assert res2["exit_price"] == 78000.0
     assert res2["pnl_r"] > 0.0
 
+
+def test_signal_expires_after_max_holding_bars(tracker):
+    sig = {
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "TRENDLINE_BREAKOUT",
+        "entry_price": 60000.0,
+        "stop_loss": 59000.0,
+        "tp1": 62200.0,
+        "tp2": 63000.0,
+        "risk_reward": 2.2,
+        "timestamp": 1700000000.0,
+    }
+    sig_id = tracker.save_signal(sig)
+    # Candle after 35 bars (35 * 900s = 31500s later) without hitting TP or SL
+    c_late = {
+        "timestamp": (1700000000 + 35 * 900) * 1000,
+        "open": 60500,
+        "high": 61000,
+        "low": 60000,
+        "close": 60800,
+    }
+    res = tracker.evaluate_signal(sig_id, c_late)
+    assert res["status"] == "EXPIRED"
+    assert res["exit_price"] == 60800.0
+    assert res["pnl_r"] == pytest.approx(0.8, abs=0.05)
+
+
+def test_single_active_position_policy_blocks_duplicate_or_opposing_signals(tracker):
+    sig_long = {
+        "symbol": "ETHUSDT",
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "TRENDLINE_BREAKOUT",
+        "entry_price": 3000.0,
+        "stop_loss": 2900.0,
+        "tp1": 32200.0,
+        "tp2": 3300.0,
+        "risk_reward": 2.2,
+        "timestamp": 1700000000.0,
+    }
+    id1 = tracker.save_signal(sig_long)
+    assert id1 is not None
+
+    # Try saving an opposing SHORT on the same symbol while LONG is still OPEN
+    sig_short = {
+        "symbol": "ETHUSDT",
+        "timeframe": "15m",
+        "signal_type": "SHORT",
+        "pattern": "TRENDLINE_BREAKOUT",
+        "entry_price": 3000.0,
+        "stop_loss": 3100.0,
+        "tp1": 2800.0,
+        "tp2": 2700.0,
+        "risk_reward": 2.2,
+        "timestamp": 1700000100.0,
+    }
+    id2 = tracker.save_signal(sig_short)
+    # Must return id1 without creating duplicate or opposing active trade
+    assert id2 == id1
+
+    open_sigs = tracker.list_signals(status_filter="OPEN", symbol_filter="ETHUSDT")
+    assert len(open_sigs) == 1
+    assert open_sigs[0]["id"] == id1
+    assert open_sigs[0]["signal_type"] == "LONG"
+
+

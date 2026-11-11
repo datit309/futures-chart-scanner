@@ -69,14 +69,15 @@ class SignalTracker:
         pattern = str(sig.get("pattern", "BREAKOUT"))
 
         with self._get_connection() as conn:
-            # Check for existing open signal for same symbol & type within cooldown
+            # Single Active Position Policy:
+            # If ANY signal is currently OPEN for this symbol, do NOT create another active trade
             cursor = conn.execute(
                 """
                 SELECT id FROM signals
-                WHERE symbol = ? AND signal_type = ? AND status = 'OPEN' AND created_at >= ?
+                WHERE symbol = ? AND status = 'OPEN'
                 ORDER BY created_at DESC LIMIT 1
                 """,
-                (symbol, signal_type, created_at - cooldown_seconds),
+                (symbol,),
             )
             row = cursor.fetchone()
             if row:
@@ -140,6 +141,23 @@ class SignalTracker:
         use_be_runner = has_tp2 and sig.get("pattern") in ("SMC_ORDER_BLOCK_RETEST", "TREND_PULLBACK")
         tp1_already_hit = bool(sig.get("tp1_hit") or sig.get("breakeven_reached"))
 
+        # Check max holding timeout (default 32 bars, e.g. 8h on 15m)
+        timeframe = str(sig.get("timeframe", "15m")).lower()
+        tf_seconds = 900.0
+        if "1h" in timeframe or timeframe == "60m":
+            tf_seconds = 3600.0
+        elif "4h" in timeframe:
+            tf_seconds = 14400.0
+        elif "1d" in timeframe:
+            tf_seconds = 86400.0
+        elif "5m" in timeframe:
+            tf_seconds = 300.0
+
+        max_duration = 32 * tf_seconds
+        created_at_sec = float(sig.get("created_at") or 0.0)
+        trade_age = ts_sec - created_at_sec if created_at_sec > 0 else 0.0
+        is_timed_out = trade_age >= max_duration
+
         status = "OPEN"
         exit_price = None
         pnl_r = 0.0
@@ -179,6 +197,11 @@ class SignalTracker:
                     exit_price = sl
                     pnl_r = -1.0
                     pnl_pct = (sl - entry) / entry
+            elif is_timed_out:
+                status = "EXPIRED"
+                exit_price = close
+                pnl_r = round((close - entry) / risk, 2)
+                pnl_pct = (close - entry) / entry
             else:
                 floating_r = round((close - entry) / risk, 2) if risk > 0 else 0.0
                 return {**sig, "floating_r": floating_r}
@@ -216,6 +239,11 @@ class SignalTracker:
                     exit_price = sl
                     pnl_r = -1.0
                     pnl_pct = (entry - sl) / entry
+            elif is_timed_out:
+                status = "EXPIRED"
+                exit_price = close
+                pnl_r = round((entry - close) / risk, 2)
+                pnl_pct = (entry - close) / entry
             else:
                 floating_r = round((entry - close) / risk, 2) if risk > 0 else 0.0
                 return {**sig, "floating_r": floating_r}

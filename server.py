@@ -87,7 +87,11 @@ class WebServerState:
         self.last_scan_time: float = 0.0
         self.signal_tracker = SignalTracker(db_path=os.getenv("SIGNALS_DB_PATH", "signals.db"))
         self.news_service = NewsService()  # advisory headlines only; never touched by run_scan
-        self.active_signals: Dict[str, Dict[str, Any]] = {}
+        try:
+            open_signals = self.signal_tracker.list_signals(status_filter="OPEN", limit=100)
+            self.active_signals: Dict[str, Dict[str, Any]] = {s["symbol"]: s for s in open_signals}
+        except Exception:
+            self.active_signals: Dict[str, Dict[str, Any]] = {}
         self.top_symbols: List[str] = []
         self.ws_clients: set = set()
         self.is_scanning: bool = False
@@ -124,12 +128,17 @@ class WebServerState:
                 try:
                     outcomes = self.signal_tracker.evaluate_open_signals(sym, klines[-1])
                     for outcome in outcomes:
-                        if outcome.get("status") in ("WIN", "LOSS"):
+                        if outcome.get("status") in ("WIN", "LOSS", "EXPIRED"):
                             await self.broadcast_ws("SIGNAL_OUTCOME", outcome)
                             if sym in self.active_signals:
                                 self.active_signals[sym]["status"] = outcome["status"]
                 except Exception as exc:
                     print(f"[Tracker] Error evaluating signals for {sym}: {exc}")
+
+                # Single Active Position Policy:
+                # If symbol currently has an active OPEN trade, do NOT generate new signals for it!
+                if self.active_signals.get(sym, {}).get("status") == "OPEN":
+                    continue
 
                 raw_signals = self.technical_engine.analyze_market(klines, symbol=sym, timeframe=self.config.timeframe)
                 for raw_sig in raw_signals:
@@ -153,17 +162,19 @@ class WebServerState:
                         }
 
                         # Persist to SQLite database with kline snapshot
+                        sig_id = None
                         try:
                             sig_id = self.signal_tracker.save_signal(sig_dict, klines=klines[-50:])
                             sig_dict["id"] = sig_id
                         except Exception as exc:
                             print(f"[Tracker] Error saving signal for {sym}: {exc}")
 
-                        self.active_signals[sym] = sig_dict
-                        found_signals.append(sig_dict)
-
-                        # Broadcast alert to WS
-                        await self.broadcast_ws("NEW_SIGNAL", sig_dict)
+                        existing_id = self.active_signals.get(sym, {}).get("id")
+                        if sig_id and sig_id != existing_id:
+                            self.active_signals[sym] = sig_dict
+                            found_signals.append(sig_dict)
+                            # Broadcast alert to WS
+                            await self.broadcast_ws("NEW_SIGNAL", sig_dict)
 
             self.last_scan_time = time.time()
             await self.broadcast_ws("SCAN_COMPLETE", {
