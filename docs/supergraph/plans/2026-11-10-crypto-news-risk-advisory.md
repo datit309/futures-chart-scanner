@@ -268,3 +268,12 @@ Approved 2026-11-11 (user confirmed source switch). Executing via Supergraph Tea
 
 ## Final Review Gate
 After implementation: run fix loop, full unit tests, browser QA, and review before merge.
+## Review Log (2026-11-11)
+- Review range: 03aee3a..0474959 (Full tier: 10 files, +1,824 lines; graph: run_scan has zero NewsService callees — invariant verified via trace_path).
+- Reviewer verdict: WITH_FIXES → all findings fixed in 0474959:
+  - Important #1 event_tags `break` skipped later non-negated occurrences → break only after an accepted hit; regression test added.
+  - Important #2 DTD/entity ASCII-substring gate bypassable via UTF-16 declaration → strict UTF-8/ASCII decode + XML-declaration encoding rejection before the gate; regression tests added.
+  - Important #3 createNewsController abort/race untested → focused unit test with out-of-order fake fetch added (implementation was correct).
+  - Minor: content-type header absent now sniffs XML declaration/root; cache trim runs once per refresh; news controller stops on pagehide; GAS test assertion made explicit (untracked, not alias-only); USER_AGENT documented as NEWS_USER_AGENT override.
+- Final verification after fixes: pytest 72/72, node 30/30, py_compile OK, live 4/4 feeds 200, dashboard 200.
+- Verdict: PASS (0 Critical, 0 Important remaining).
