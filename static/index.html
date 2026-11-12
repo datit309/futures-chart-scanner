@@ -345,7 +345,7 @@
     <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
   </div>
   <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
-</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn" data-days="1">1D</button><button class="range-btn active" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn active" data-days="auto">AUTO</button><button class="range-btn" data-days="1">1D</button><button class="range-btn" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
   <div id="tvChartContainer"></div>
   <div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div>
   <div class="signal-chart-tooltip hidden" id="signalChartTooltip">
@@ -512,7 +512,7 @@
 import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,formatSignalTooltipData} from '/static/chart_stream.js?v=lina1';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'3',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null,shapeSignalMap:new Map(),crosshairNearSignal:false,activeTooltipSignal:null};
+  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'auto',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null,shapeSignalMap:new Map(),crosshairNearSignal:false,activeTooltipSignal:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
@@ -662,7 +662,23 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     }catch(err){console.warn('renderTradingViewDrawings error:',err);}
   }
 
-  function applyTimeRange(days=state.rangeDays||'default'){
+  const TF_BAR_TARGET = 300;
+  const TF_DAYS_MAP = {
+    '1m': (TF_BAR_TARGET * 60) / 86400,
+    '3m': (TF_BAR_TARGET * 180) / 86400,
+    '5m': (TF_BAR_TARGET * 300) / 86400,
+    '15m': (TF_BAR_TARGET * 900) / 86400,
+    '30m': (TF_BAR_TARGET * 1800) / 86400,
+    '1h': (TF_BAR_TARGET * 3600) / 86400,
+    '2h': (TF_BAR_TARGET * 7200) / 86400,
+    '4h': (TF_BAR_TARGET * 14400) / 86400,
+    '6h': (TF_BAR_TARGET * 21600) / 86400,
+    '12h': (TF_BAR_TARGET * 43200) / 86400,
+    '1d': (TF_BAR_TARGET * 86400) / 86400,
+    '1w': (TF_BAR_TARGET * 604800) / 86400,
+  };
+
+  function applyTimeRange(days=state.rangeDays||'auto'){
     state.rangeDays=days;
     $$('.range-btn').forEach(b=>b.classList.toggle('active',b.dataset.days===String(days)));
     if(!state.widget||!state.chartReady||!state.chartPayload?.candles?.length)return;
@@ -675,8 +691,8 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       }else{
         let numDays = Number(days);
         if(!numDays){
-          const tfDaysMap = { '1m': 0.5, '5m': 1, '15m': 3, '1h': 14, '4h': 45, '1d': 180 };
-          numDays = tfDaysMap[state.timeframe] || 3;
+          // AUTO: pick the window that shows ~TF_BAR_TARGET bars on this timeframe
+          numDays = TF_DAYS_MAP[state.timeframe] || 3;
         }
         const targetFrom=lastTime-(numDays*86400);
         const fromTime=Math.max(candles[0].time,targetFrom);
@@ -767,7 +783,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       state.chartReady=true;
       if(state.chartPayload){
         renderTradingViewDrawings(state.chartPayload);
-        applyTimeRange(state.rangeDays||'default');
+        applyTimeRange(state.rangeDays||'auto');
       }
 
       try{
@@ -776,7 +792,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
           c.onDataLoaded().subscribe(null,()=>{
             if(state.chartPayload){
               renderTradingViewDrawings(state.chartPayload);
-              applyTimeRange(state.rangeDays||'default');
+              applyTimeRange(state.rangeDays||'auto');
             }
           });
         }
@@ -792,6 +808,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
               state.timeframe = newTf;
               $('#frameLabel').textContent = state.timeframe;
               $$('.tf').forEach(b => b.classList.toggle('active', b.dataset.tf === state.timeframe));
+              state.rangeDays = 'auto';
               if(state.marketWs){ state.marketWs.onclose = null; state.marketWs.close(); state.marketWs = null; }
               connectMarketWs();
               loadChart();
@@ -914,7 +931,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   async function loadSymbols(){try{const r=await fetch('/api/symbols');if(!r.ok)throw Error('symbols '+r.status);const d=await r.json();state.symbols=d.symbols||[];state.allSymbols=d.all_symbols||d.symbols||[];state.tickers=d.tickers||{};if(state.tickers.BTCUSDT){$('#btcPrice').textContent=fmt(state.tickers.BTCUSDT.lastPrice);$('#btcChange').textContent=`${Number(state.tickers.BTCUSDT.priceChangePercent).toFixed(2)}%`;$('#btcVol').textContent=`24H VOL ${fmt(state.tickers.BTCUSDT.quoteVolume)}`}$('#pairCount').textContent=state.symbols.length;$('#universeLabel').textContent=(state.symbols.length||30)+' PAIRS';renderWatchlist();const sel=$('#symbolSelect');sel.innerHTML=state.symbols.map(s=>`<option value="${s}">${s}</option>`).join('');if(!state.symbols.includes(state.symbol))sel.insertAdjacentHTML('afterbegin',`<option value="${state.symbol}">${state.symbol}</option>`);sel.value=state.symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=state.symbol;renderSymbolDropdown();}catch(e){console.warn(e);$('#connection').textContent='API OFFLINE'}}
 
-  async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'1000'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;const rb=$('#regimeBadge');if(rb&&d.regime){rb.textContent=`${d.regime} (ADX ${d.adx!=null?d.adx:'--'})`;rb.style.color=d.regime==='RANGING'?'var(--amber)':'var(--green)';}renderTradingViewDrawings(d);applyTimeRange(state.rangeDays||'default');if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
+  async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'1000'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;const rb=$('#regimeBadge');if(rb&&d.regime){rb.textContent=`${d.regime} (ADX ${d.adx!=null?d.adx:'--'})`;rb.style.color=d.regime==='RANGING'?'var(--amber)':'var(--green)';}renderTradingViewDrawings(d);applyTimeRange(state.rangeDays||'auto');if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
 
   async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;$('#symbolSelect').value=symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=symbol;$('#chartSymbol').textContent=symbol;if(newsController)newsController.refresh();if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();}
 
@@ -997,6 +1014,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     b.classList.add('active');
     state.timeframe=b.dataset.tf;
     $('#frameLabel').textContent=state.timeframe;
+    state.rangeDays='auto';
     if(state.widget&&state.chartReady){
       state.widget.chart().setResolution(timeframeToTradingView(state.timeframe),async()=>{
         await loadChart();
