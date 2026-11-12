@@ -52,6 +52,10 @@ class SignalTracker:
                 conn.execute("ALTER TABLE signals ADD COLUMN tp1_hit INTEGER DEFAULT 0;")
             except sqlite3.OperationalError:
                 pass
+            try:
+                conn.execute("ALTER TABLE signals ADD COLUMN volume_ratio REAL DEFAULT 0.0;")
+            except sqlite3.OperationalError:
+                pass
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);")
@@ -89,8 +93,8 @@ class SignalTracker:
                 INSERT INTO signals (
                     symbol, timeframe, signal_type, pattern,
                     entry_price, stop_loss, tp1, tp2, risk_reward, sl_pct,
-                    description, status, created_at, updated_at, kline_snapshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
+                    description, status, created_at, updated_at, kline_snapshot, volume_ratio
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
                 """,
                 (
                     symbol,
@@ -107,6 +111,7 @@ class SignalTracker:
                     created_at,
                     now,
                     kline_json,
+                    float(sig.get("volume_ratio", 0.0) or 0.0),
                 ),
             )
             return cursor.lastrowid

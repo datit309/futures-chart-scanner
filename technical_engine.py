@@ -333,6 +333,33 @@ class TechnicalEngine:
                 })
         return fvgs
 
+    def check_volume_surge_ratio(
+        self,
+        klines: List[Dict[str, Any]],
+        bar_index: int = -2,
+        threshold: float = 1.25,
+        lookback: int = 20,
+    ) -> Optional[float]:
+        """
+        Return the volume multiple of the baseline when the bar is a surge,
+        otherwise None. Companion to check_volume_surge for surfacing the
+        actual ratio to the UI.
+        """
+        n = len(klines)
+        idx = bar_index if bar_index >= 0 else n + bar_index
+        if idx <= 0 or n < 5 or idx < lookback:
+            return None
+        start_idx = max(0, idx - lookback)
+        prior_vols = [float(k.get("volume", 0.0)) for k in klines[start_idx:idx]]
+        if not prior_vols:
+            return None
+        avg_vol = float(np.mean(prior_vols))
+        if avg_vol <= 0.0:
+            return None
+        bar_vol = float(klines[idx].get("volume", 0.0))
+        ratio = bar_vol / avg_vol
+        return ratio if ratio >= threshold else None
+
     def check_volume_surge(
         self,
         klines: List[Dict[str, Any]],

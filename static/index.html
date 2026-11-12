@@ -345,7 +345,7 @@
     <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
   </div>
   <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
-</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn active" data-days="auto">AUTO</button><button class="range-btn" data-days="1">1D</button><button class="range-btn" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn active" data-days="auto">AUTO</button><button class="range-btn" data-days="1">1D</button><button class="range-btn" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><label><input type="checkbox" data-overlay="volume_surge" checked> Volume đột biến</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
   <div id="tvChartContainer"></div>
   <div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div>
   <div class="signal-chart-tooltip hidden" id="signalChartTooltip">
@@ -366,6 +366,7 @@
       <div class="sct-metric"><span>1H TREND</span><b id="sctHtf">—</b></div>
       <div class="sct-metric"><span>FUNDING</span><b id="sctFunding">—</b></div>
       <div class="sct-metric" style="grid-column:1/-1"><span>TRẠNG THÁI</span><b id="sctBreakeven" style="color:var(--amber)">—</b></div>
+      <div class="sct-metric" style="grid-column:1/-1"><span>KHỐI LƯỢNG</span><b id="sctVolume" style="color:var(--amber)">—</b></div>
     </div>
   </div>
 </div><div class="chart-cheat-sheet">
@@ -509,7 +510,7 @@
 
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,formatSignalTooltipData} from '/static/chart_stream.js?v=lina1';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio} from '/static/chart_stream.js?v=lina1';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
   const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'auto',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null,shapeSignalMap:new Map(),crosshairNearSignal:false,activeTooltipSignal:null};
@@ -562,6 +563,11 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     if(be){
       be.textContent=data.breakevenText;
       be.style.color=data.beReached?'var(--green)':'var(--amber)';
+    }
+    const vol=$('#sctVolume');
+    if(vol){
+      vol.textContent=data.volumeText;
+      vol.style.color=data.volumeText.startsWith('ĐỘT BIẾN')?'var(--amber)':'var(--muted)';
     }
 
     tt.classList.remove('hidden');
@@ -630,6 +636,14 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       // 3b. Closed-trade history for the selected symbol (outcome arrows at entry positions)
       if(o.history&&state.historySignals?.length){
         formatHistoryTrades(state.historySignals).forEach(sh=>{
+          const sid=c.createShape(sh.point,sh.options);
+          if(sid&&sh.signal)state.shapeSignalMap.set(sid,sh.signal);
+        });
+      }
+
+      // 3c. Volume surge markers — makes the engine's hidden volume filter visible
+      if(o.volume_surge&&candles?.length){
+        formatVolumeSurgeShapes(candles, 1.25, 20, 8).forEach(sh=>{
           const sid=c.createShape(sh.point,sh.options);
           if(sid&&sh.signal)state.shapeSignalMap.set(sid,sh.signal);
         });

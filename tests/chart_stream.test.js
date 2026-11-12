@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData, formatVolumeSurgeShapes, computeVolumeSurgeRatio } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -551,3 +551,72 @@ test('formatSignalTooltipData includes HTF trend and order flow metrics', () => 
 });
 
 
+
+test('computeVolumeSurgeRatio returns multiple of SMA baseline', () => {
+  const klines = [];
+  for (let i = 0; i < 25; i++) {
+    klines.push({ time: 1700000000 + i * 900, open: 100, high: 101, low: 99, close: 100, volume: 100 });
+  }
+  // Not enough data -> null
+  assert.equal(computeVolumeSurgeRatio(klines.slice(0, 5), 4), null);
+  // Flat baseline -> ratio 1.0 (no surge)
+  assert.equal(computeVolumeSurgeRatio(klines, 24), 1.0);
+  // 3x volume -> ratio 3.0
+  klines[24].volume = 300;
+  assert.equal(computeVolumeSurgeRatio(klines, 24), 3.0);
+});
+
+test('formatVolumeSurgeShapes marks only bars exceeding the threshold', () => {
+  const klines = [];
+  for (let i = 0; i < 30; i++) {
+    klines.push({ time: 1700000000 + i * 900, open: 100, high: 101, low: 99, close: 100, volume: 100 });
+  }
+  // Bar 24: 3x surge (should be marked)
+  klines[24].volume = 300;
+  // Bar 27: 1.1x (below 1.25 threshold, must NOT be marked)
+  klines[27].volume = 110;
+
+  const shapes = formatVolumeSurgeShapes(klines, 1.25, 20, 10);
+  assert.equal(shapes.length, 1, 'only the qualifying surge is marked');
+  assert.equal(shapes[0].point.time, klines[24].time);
+  assert.ok(shapes[0].options.text.includes('VOL'), 'label mentions VOL');
+  assert.ok(shapes[0].options.text.includes('3.0'), 'label includes the ratio');
+  assert.equal(shapes[0].options.overrides.color, '#f5b84b');
+  assert.ok(shapes[0].point.price < 99, 'marker sits below the candle low');
+  assert.ok(shapes[0].signal && shapes[0].signal.volumeSurge === true);
+});
+
+test('formatVolumeSurgeShapes caps output to the most recent surges', () => {
+  const klines = [];
+  for (let i = 0; i < 60; i++) {
+    klines.push({ time: 1700000000 + i * 900, open: 100, high: 101, low: 99, close: 100, volume: 100 });
+  }
+  // 8 discrete surges spaced 5 bars apart, so every prior 20-bar window stays
+  // dominated by the 100-volume baseline and each spike is clearly a surge.
+  [24, 29, 34, 39, 44, 49, 54, 59].forEach(i => { klines[i].volume = 300; });
+  const shapes = formatVolumeSurgeShapes(klines, 1.25, 20, 5);
+  assert.equal(shapes.length, 5, 'capped at the requested limit');
+  // Newest surge must come first
+  assert.equal(shapes[0].point.time, klines[59].time);
+});
+
+test('formatSignalTooltipData exposes volume surge ratio when present', () => {
+  const signal = {
+    symbol: 'BTCUSDT',
+    timeframe: '15m',
+    signal_type: 'LONG',
+    pattern: 'TRENDLINE_BREAKOUT',
+    description: 'Bullish Breakout over Resistance Trendline (5 touches)',
+    entry_price: 74000,
+    stop_loss: 73300,
+    tp1: 74700,
+    tp2: 75300,
+    risk_reward: 2.2,
+    status: 'OPEN',
+    created_at: 1700000000,
+    volume_ratio: 2.6,
+  };
+  const tooltip = formatSignalTooltipData(signal);
+  assert.ok(tooltip.volumeText.includes('2.6'), 'volume ratio surfaced in tooltip');
+  assert.ok(tooltip.volumeText.includes('SMA'), 'explains the baseline');
+});

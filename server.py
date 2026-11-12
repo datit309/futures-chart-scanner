@@ -181,6 +181,9 @@ class WebServerState:
                             raw_sig, funding_rate=funding_rate, open_interest=open_interest
                         )
                         if enriched:
+                            vol_ratio = self.technical_engine.check_volume_surge_ratio(
+                                klines, bar_index=-2, threshold=1.25
+                            )
                             sig_dict = {
                                 "symbol": enriched.symbol,
                                 "timeframe": enriched.timeframe,
@@ -197,6 +200,7 @@ class WebServerState:
                                 "htf_bias": getattr(enriched, "htf_bias", htf_bias),
                                 "funding_rate": getattr(enriched, "funding_rate", funding_rate),
                                 "open_interest": getattr(enriched, "open_interest", open_interest),
+                                "volume_ratio": round(vol_ratio, 2) if vol_ratio else 0.0,
                                 "timestamp": time.time(),
                                 "status": "OPEN",
                             }

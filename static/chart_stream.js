@@ -510,6 +510,68 @@ export function formatSignalPlainExplanation(signal) {
   return isLong ? '🟢 Kèo Mua (LONG) theo cấu trúc thị trường' : '🔴 Kèo Bán (SHORT) theo cấu trúc thị trường';
 }
 
+// ---------------------------------------------------------------------------
+// Volume surge detection — makes the engine's hidden volume filter visible.
+// A bar is a "surge" when its volume >= threshold * SMA(lookback) of prior bars.
+// ---------------------------------------------------------------------------
+
+export function computeVolumeSurgeRatio(klines, barIndex, lookback = 20) {
+  if (!Array.isArray(klines) || klines.length === 0) return null;
+  const n = klines.length;
+  const idx = barIndex >= 0 ? barIndex : n + barIndex;
+  if (idx < lookback || idx >= n) return null;
+
+  let sum = 0;
+  let count = 0;
+  for (let i = idx - lookback; i < idx; i++) {
+    const v = Number(klines[i] && klines[i].volume);
+    if (!Number.isFinite(v) || v < 0) return null;
+    sum += v;
+    count++;
+  }
+  const avg = sum / count;
+  if (avg <= 0) return null;
+
+  const barVol = Number(klines[idx] && klines[idx].volume);
+  if (!Number.isFinite(barVol)) return null;
+  return barVol / avg;
+}
+
+export function formatVolumeSurgeShapes(klines, threshold = 1.25, lookback = 20, limit = 8) {
+  if (!Array.isArray(klines) || klines.length <= lookback) return [];
+  const shapes = [];
+  const n = klines.length;
+
+  // Scan backwards so the newest surges win the limited slots
+  for (let i = n - 1; i >= lookback && shapes.length < limit; i--) {
+    const ratio = computeVolumeSurgeRatio(klines, i, lookback);
+    if (ratio === null || ratio < threshold) continue;
+
+    const bar = klines[i];
+    const low = Number(bar && bar.low);
+    if (!Number.isFinite(low)) continue;
+
+    shapes.push({
+      key: `vol-surge-${bar.time}-${ratio.toFixed(2)}`,
+      point: { time: bar.time, price: low * 0.998 },
+      signal: { volumeSurge: true, volumeRatio: ratio, time: bar.time },
+      options: {
+        shape: 'arrow_up',
+        text: `VOL x${ratio.toFixed(1)}`,
+        lock: true,
+        disableSelection: false,
+        overrides: {
+          color: '#f5b84b',
+          textcolor: '#f5b84b',
+          fontsize: 9,
+          bold: true,
+        },
+      },
+    });
+  }
+  return shapes;
+}
+
 export function formatSignalTooltipData(signal) {
   if (!signal) return null;
   const isShort = (signal.signal_type || '').toUpperCase() === 'SHORT';
@@ -556,6 +618,11 @@ export function formatSignalTooltipData(signal) {
     ? 'ĐÃ DỜI HÒA VỐN (0 RỦI RO)'
     : 'CHỜ HIT TP1 (1.5R)';
 
+  const volRatio = Number(signal.volume_ratio);
+  const volumeText = Number.isFinite(volRatio) && volRatio > 0
+    ? `ĐỘT BIẾN x${volRatio.toFixed(2)} (vs SMA20)`
+    : 'KHÔNG ĐỘT BIẾN';
+
   return {
     title: isShort ? '🔴 VÀO LỆNH SHORT' : '🟢 VÀO LỆNH LONG',
     badgeClass: isShort ? 'badge-short' : 'badge-long',
@@ -575,6 +642,7 @@ export function formatSignalTooltipData(signal) {
     openInterestText,
     breakevenText,
     beReached,
+    volumeText,
     rawSignal: signal,
   };
 }
@@ -775,4 +843,4 @@ export function createNewsController({ container, getSymbol, fetchFn, now = () =
   return { refresh, start, stop };
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio};
