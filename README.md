@@ -92,3 +92,53 @@ Mở `http://127.0.0.1:8766` trong trình duyệt. Nến realtime (OHLC đầy �
   ```bash
   ./run.sh --test
   ```
+
+---
+
+## ✅ Crypto News RSS Advisory — Publisher Terms Gate (PASSED với nguồn thay thế)
+
+> Trạng thái: **CHO PHÉP IMPLEMENT**. Gate Task 0 đã chạy (2026-11-11): bộ nguồn gốc CoinDesk/Cointelegraph bị **BLOCKED** (xem lịch sử bên dưới), user đã duyệt chuyển sang bộ nguồn **verified-allow** + **có tác động thị trường thực tế** (không lấy tin vịt).
+
+**Nguồn chính thức (fixed allowlist, chỉ đổi được trong code):**
+
+| Nguồn | URL | Cơ sở pháp lý | Kiểm tra |
+|---|---|---|---|
+| SEC (Ủy ban Chứng khoán Mỹ) | `https://www.sec.gov/news/pressreleases.xml` | Tác phẩm của chính phủ liên bang Mỹ — public domain theo luật (17 U.S.C. §105) | ✅ HTTP 200 XML |
+| Federal Reserve | `https://www.federalreserve.gov/feeds/press_all.xml` | Tác phẩm chính phủ liên bang Mỹ — public domain | ✅ HTTP 200 XML |
+| Google News (crypto) | `https://news.google.com/rss/search?q=cryptocurrency+OR+bitcoin+OR+ethereum+when:2d&hl=en-US&gl=US&ceid=US:en` | License ghi ngay trong feed: *"made available solely for the purpose of rendering Google News results within a personal feed reader for personal, non-commercial use"* | ✅ HTTP 200 XML |
+| Google News (regulation) | `https://news.google.com/rss/search?q=crypto+regulation+OR+sec+OR+cftc+when:3d&hl=en-US&gl=US&ceid=US:en` | Như trên | ✅ HTTP 200 XML |
+
+**Chống tin vịt:** item từ Google News chỉ được giữ nếu hậu tố nguồn trong title thuộc allowlist tier-1: `Bloomberg, Reuters, CNBC, WSJ, Financial Times, Fortune, Forbes, Barron's, MarketWatch, Benzinga, CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine`. Item SEC/Fed đi thẳng (nguồn chính thức).
+
+**Cách dùng tuân thủ license:** chỉ hiển thị headline + tên nguồn + thời gian + link outbound; không lưu full text, không hình ảnh, không summary; text render bằng `textContent`; link HTTPS `rel="noopener noreferrer"`; dashboard local, phi thương mại.
+
+**Lịch sử gate (2026-11-11):** Sweep 11 nguồn ban đầu — CoinDesk (ToS không verify được, HTTP 429 Vercel checkpoint), Cointelegraph (ToS §3 cấm automated scraping/content pipelines nếu không có authorization), The Block (Cloudflare 403), Bitcoin Magazine (cấm reproduction without written consent), CryptoSlate/U.Today/NewsBTC (cấm tuyên bố republish/scrape), Blockworks (redistribution phải trả phí), Bitcoin.com (cấm automated extraction), Decrypt (không có license grant), Treasury/DOJ/CFTC (feed unreachable/404 từ mạng này). Không nguồn editorial nào verified-allow → chuyển sang SEC + Fed + Google News tier-1 filtered.
+
+---
+
+## 📰 Cách hoạt động của panel tin tức (advisory-only)
+
+**Vai trò:** Tin tức chỉ là *ngữ cảnh tham khảo*. Panel **không bao giờ** tạo/sửa/xoá/bóp tín hiệu, không đổi Entry/SL/TP, không đổi sizing, không đặt lệnh. `WebServerState.run_scan` không gọi `NewsService` (có test khoá invariant). Quét kỹ thuật chạy độc lập hoàn toàn.
+
+**Nguồn cố định (chỉ đổi được trong code `news_service.py`, không nhận URL từ query/user — chặn SSRF):**
+- SEC press releases · Federal Reserve press releases (public domain)
+- Google News RSS: truy vấn `cryptocurrency/bitcoin/ethereum` và `crypto regulation` — lọc theo allowlist nguồn tier-1: Bloomberg, Reuters, CNBC, WSJ, Financial Times, Fortune, Forbes, Barron's, MarketWatch, Benzinga, CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin Magazine. Tin từ nguồn ngoài allowlist bị loại (chống tin vịt).
+
+**Chu kỳ & độ trễ:** poll mỗi 5 phút + ngay khi khởi động; mỗi feed timeout 4 giây, không redirect, giới hạn 512 KiB decompressed; cache tối đa 200 item / 24 giờ. `stale = true` nếu chưa có lần refresh thành công nào hoặc lần thành công gần nhất > 15 phút.
+
+**Thời gian:** Ngày thiếu/không hợp lệ/tương lai → lấy thời gian fetch và gắn cờ `published_at_estimated = true`.
+
+**Nhận diện symbol:** khớp ranh giới token trên title (không khớp URL slug); alias tường minh (BTC=bitcoin, ETH=ethereum|ether, SOL=solana, LINK=chainlink, DOT=polkadot, NEAR=near protocol, OP=optimism, ARB=arbitrum, TON=toncoin, APT=aptos, UNI=uniswap…). Các ticker dễ nhầm từ thường (`LINK, NEAR, OP, ARB, UNI, DOT, TON, APT, GAS, HOT, ARK, ATOM, ONE, ON`) **chỉ** khớp alias, không khớp ticker trần (tránh "click the link", "connect the dots", "tons of", "apt to", "university", "arbitrage", "original post"). Item không khớp symbol nào chỉ được giữ nếu khớp cụm thị trường rộng (`bitcoin`, `federal reserve`, `fomc`, `inflation`, `crypto regulation`…).
+
+**Tag sự kiện (trung lập):** khớp cụm chính xác — `hack, exploit, security breach, lawsuit, ban, sanction, regulation, delisting, insolvency, bankruptcy, liquidation` + viết tắt **chữ hoa** `SEC, CFTC, ETF`. Tag bị triệt tiêu nếu trong 3 token trước đó có phủ định (`no, not, without, unlikely, denies, denied, rejects, false`) — ví dụ "no hack reported" không gắn tag `hack`. Chip tiếng Việt: `VĨ MÔ`, `QUY ĐỊNH`, `BẢO MẬT`, `SÀN GIAO DỊCH`. **Không** có nhãn cảm xúc/LONG/SHORT/khuyến nghị.
+
+**Giới hạn cần biết:**
+- Nhận diện symbol/tag có thể sai (false positive) và bỏ sót (negation chỉ hoạt động trong cửa sổ 3 token).
+- Tin có thể cũ, thiếu, hoặc không liên quan tới cặp đang xem — luôn tự mở nguồn gốc để kiểm chứng.
+- Feed có thể chậm hoặc lỗi từng nguồn; panel hiển thị rõ trạng thái stale/lỗi từng phần/lỗi toàn bộ, quét kỹ thuật vẫn chạy bình thường.
+- Không khẳng định tin "gây ra" biến động giá; chỉ hiển thị nguồn + thời gian + link.
+- Không có đánh giá lợi nhuận từ tin tức; mọi tuyên bố về edge cần backtest out-of-sample net-of-fees riêng.
+
+**Endpoint:** `GET /api/news?symbol=BTCUSDT` — chỉ đọc cache (không fetch upstream trên request path), trả tối đa 50 item mới nhất gồm: tin vĩ mô + tin symbol đang chọn + tin symbol đang có tín hiệu mở, kèm `stale`, `source_status`. Thiếu `symbol` → chỉ vĩ mô + symbol đang có tín hiệu; symbol sai định dạng → 400.
+
+**Cấu hình UA:** SEC yêu cầu User-Agent khai báo liên hệ; mặc định `futures-chart-scanner admin@example.com`, đổi được qua biến môi trường `NEWS_USER_AGENT`.

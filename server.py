@@ -4,7 +4,8 @@ import time
 import asyncio
 import re
 from typing import Dict, Any, List, Optional
-from aiohttp import web
+import aiohttp
+from aiohttp import WSMsgType, web
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from config import ScannerConfig
@@ -13,13 +14,15 @@ from technical_engine import TechnicalEngine
 from risk_manager import RiskManager, EnrichedSignal
 from chart_renderer import ChartRenderer
 from telegram_notifier import TelegramNotifier
+from news_service import NewsService, POLL_INTERVAL_SECONDS as NEWS_POLL_INTERVAL_SECONDS
+from signal_tracker import SignalTracker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 
 
-MARKET_WS_TIMEFRAMES = {"15m", "1h", "4h"}
+MARKET_WS_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
 MARKET_STALE_AFTER_SECONDS = 15.0
 MARKET_WS_POLL_SECONDS = 3.0
 MARKET_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,30}USDT$")
@@ -82,7 +85,13 @@ class WebServerState:
             chat_id=config.telegram_chat_id
         )
         self.last_scan_time: float = 0.0
-        self.active_signals: Dict[str, Dict[str, Any]] = {}
+        self.signal_tracker = SignalTracker(db_path=os.getenv("SIGNALS_DB_PATH", "signals.db"))
+        self.news_service = NewsService()  # advisory headlines only; never touched by run_scan
+        try:
+            open_signals = self.signal_tracker.list_signals(status_filter="OPEN", limit=100)
+            self.active_signals: Dict[str, Dict[str, Any]] = {s["symbol"]: s for s in open_signals}
+        except Exception:
+            self.active_signals: Dict[str, Dict[str, Any]] = {}
         self.top_symbols: List[str] = []
         self.ws_clients: set = set()
         self.is_scanning: bool = False
@@ -109,35 +118,103 @@ class WebServerState:
             if symbols:
                 self.top_symbols = symbols
 
+            # Bitcoin Volatility Circuit Breaker check
+            btc_circuit_active = False
+            try:
+                btc_klines = await self.client.get_klines("BTCUSDT", interval="15m", limit=30)
+                if btc_klines and len(btc_klines) >= 15:
+                    btc_circuit_active = self.technical_engine.is_btc_circuit_breaker_active(btc_klines)
+                    if btc_circuit_active:
+                        print("[CircuitBreaker] ⚠️ Bitcoin extreme volatility detected! Pausing altcoin signals.")
+            except Exception as exc:
+                print(f"[CircuitBreaker] Error checking BTC volatility: {exc}")
+
             found_signals = []
             for sym in self.top_symbols:
                 klines = await self.client.get_klines(sym, interval=self.config.timeframe, limit=80)
                 if not klines or len(klines) < 15:
                     continue
-                raw_signals = self.technical_engine.analyze_market(klines, symbol=sym, timeframe=self.config.timeframe)
-                for raw_sig in raw_signals:
-                    enriched = self.risk_manager.validate_and_enrich(raw_sig)
-                    if enriched:
-                        sig_dict = {
-                            "symbol": enriched.symbol,
-                            "timeframe": enriched.timeframe,
-                            "signal_type": enriched.signal_type,
-                            "pattern": enriched.pattern.value if hasattr(enriched.pattern, 'value') else str(enriched.pattern),
-                            "entry_price": enriched.entry_price,
-                            "stop_loss": enriched.stop_loss,
-                            "take_profit": enriched.take_profit,
-                            "tp1": enriched.extra_targets.get("tp1", enriched.take_profit),
-                            "tp2": enriched.extra_targets.get("tp2", enriched.take_profit),
-                            "risk_reward": enriched.risk_reward,
-                            "sl_pct": enriched.sl_pct,
-                            "description": enriched.description,
-                            "timestamp": time.time()
-                        }
-                        self.active_signals[sym] = sig_dict
-                        found_signals.append(sig_dict)
 
-                        # Broadcast alert to WS
-                        await self.broadcast_ws("NEW_SIGNAL", sig_dict)
+                # Evaluate any open signals against the latest forming candle
+                try:
+                    outcomes = self.signal_tracker.evaluate_open_signals(sym, klines[-1])
+                    for outcome in outcomes:
+                        if outcome.get("status") in ("WIN", "LOSS", "EXPIRED"):
+                            await self.broadcast_ws("SIGNAL_OUTCOME", outcome)
+                            if sym in self.active_signals:
+                                self.active_signals[sym]["status"] = outcome["status"]
+                except Exception as exc:
+                    print(f"[Tracker] Error evaluating signals for {sym}: {exc}")
+
+                # Single Active Position Policy:
+                # If symbol currently has an active OPEN trade, do NOT generate new signals for it!
+                if self.active_signals.get(sym, {}).get("status") == "OPEN":
+                    continue
+
+                # If BTC circuit breaker is active, pause new signals for altcoins
+                if btc_circuit_active and sym != "BTCUSDT":
+                    continue
+
+                # Multi-Timeframe (MTF) Trend Alignment from 1H klines
+                htf_bias = "NEUTRAL"
+                try:
+                    klines_1h = await self.client.get_klines(sym, interval="1h", limit=50)
+                    if klines_1h and len(klines_1h) >= 10:
+                        htf_bias = self.technical_engine.detect_htf_bias(klines_1h)
+                except Exception as exc:
+                    print(f"[MTF] Error fetching 1h klines for {sym}: {exc}")
+
+                raw_signals = self.technical_engine.analyze_market(
+                    klines, symbol=sym, timeframe=self.config.timeframe, htf_bias=htf_bias
+                )
+                if raw_signals:
+                    funding_rate = 0.0
+                    open_interest = 0.0
+                    try:
+                        funding_rate = await self.client.get_funding_rate(sym)
+                        open_interest = await self.client.get_open_interest(sym)
+                    except Exception as exc:
+                        print(f"[OrderFlow] Error fetching metrics for {sym}: {exc}")
+
+                    for raw_sig in raw_signals:
+                        enriched = self.risk_manager.validate_and_enrich(
+                            raw_sig, funding_rate=funding_rate, open_interest=open_interest
+                        )
+                        if enriched:
+                            sig_dict = {
+                                "symbol": enriched.symbol,
+                                "timeframe": enriched.timeframe,
+                                "signal_type": enriched.signal_type,
+                                "pattern": enriched.pattern.value if hasattr(enriched.pattern, 'value') else str(enriched.pattern),
+                                "entry_price": enriched.entry_price,
+                                "stop_loss": enriched.stop_loss,
+                                "take_profit": enriched.take_profit,
+                                "tp1": enriched.extra_targets.get("tp1", enriched.take_profit),
+                                "tp2": enriched.extra_targets.get("tp2", enriched.take_profit),
+                                "risk_reward": enriched.risk_reward,
+                                "sl_pct": enriched.sl_pct,
+                                "description": enriched.description,
+                                "htf_bias": getattr(enriched, "htf_bias", htf_bias),
+                                "funding_rate": getattr(enriched, "funding_rate", funding_rate),
+                                "open_interest": getattr(enriched, "open_interest", open_interest),
+                                "timestamp": time.time(),
+                                "status": "OPEN",
+                            }
+
+                        # Persist to SQLite database with kline snapshot
+                        sig_id = None
+                        try:
+                            sig_id = self.signal_tracker.save_signal(sig_dict, klines=klines[-50:])
+                            sig_dict["id"] = sig_id
+                        except Exception as exc:
+                            print(f"[Tracker] Error saving signal for {sym}: {exc}")
+
+                        existing_id = self.active_signals.get(sym, {}).get("id")
+                        if sig_id and sig_id != existing_id:
+                            self.active_signals[sym] = sig_dict
+                            found_signals.append(sig_dict)
+                            # Broadcast alert to WS
+                            await self.broadcast_ws("NEW_SIGNAL", sig_dict)
 
             self.last_scan_time = time.time()
             await self.broadcast_ws("SCAN_COMPLETE", {
@@ -168,18 +245,96 @@ async def handle_api_status(request: web.Request) -> web.Response:
         "is_scanning": state.is_scanning,
         "scan_interval_seconds": state.config.scan_interval_seconds,
         "active_signals": list(state.active_signals.values()),
-        "top_symbols": state.top_symbols[:15]
+        "top_symbols": state.top_symbols[:15],
+        "stats": state.signal_tracker.get_stats(),
+    })
+
+async def handle_api_signals(request: web.Request) -> web.Response:
+    state: WebServerState = request.app["state"]
+    status_filter = request.query.get("status")
+    symbol_filter = request.query.get("symbol")
+    limit = int(request.query.get("limit", "50"))
+    signals = state.signal_tracker.list_signals(
+        status_filter=status_filter,
+        symbol_filter=symbol_filter,
+        limit=limit,
+    )
+    stats = state.signal_tracker.get_stats()
+    return web.json_response({
+        "signals": signals,
+        "stats": stats,
+    })
+
+async def handle_api_news(request: web.Request) -> web.Response:
+    """Advisory news headlines. Cache-only: never fetches upstream here."""
+    state: WebServerState = request.app["state"]
+    symbol = request.query.get("symbol")
+    if symbol is not None and not MARKET_SYMBOL_RE.fullmatch(symbol):
+        return web.json_response({"error": "invalid_symbol"}, status=400)
+    payload = state.news_service.snapshot(
+        symbol=symbol,
+        active_symbols=tuple(state.active_signals.keys()),
+    )
+    return web.json_response(payload)
+
+async def handle_api_signal_chart(request: web.Request) -> web.Response:
+    state: WebServerState = request.app["state"]
+    try:
+        signal_id = int(request.match_info["id"])
+    except (KeyError, ValueError):
+        return web.json_response({"error": "invalid_id"}, status=400)
+
+    sig = state.signal_tracker.get_signal(signal_id)
+    if not sig:
+        return web.json_response({"error": "signal_not_found"}, status=404)
+
+    kline_snapshot = sig.get("kline_snapshot", [])
+    tv_candles = []
+    tv_volumes = []
+    for k in kline_snapshot:
+        raw_ts = k.get("timestamp", k.get("time", 0))
+        t_sec = int(raw_ts / 1000) if raw_ts > 1e11 else int(raw_ts)
+        o, h, l, c = float(k["open"]), float(k["high"]), float(k["low"]), float(k["close"])
+        vol = float(k.get("volume", 0.0))
+        tv_candles.append({
+            "time": t_sec,
+            "open": o,
+            "high": h,
+            "low": l,
+            "close": c,
+        })
+        is_bull = c >= o
+        tv_volumes.append({
+            "time": t_sec,
+            "value": vol,
+            "color": "rgba(14, 203, 129, 0.45)" if is_bull else "rgba(246, 70, 93, 0.45)",
+        })
+
+    return web.json_response({
+        "symbol": sig["symbol"],
+        "timeframe": sig["timeframe"],
+        "signal": sig,
+        "candles": tv_candles,
+        "volumes": tv_volumes,
+        "trendlines": [],
+        "sr_zones": [],
+        "zone_bands": [],
+        "fvgs": [],
     })
 
 async def handle_api_symbols(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     if not state.top_symbols:
         state.top_symbols = await state.client.get_top_futures_symbols(limit=state.config.top_n_coins)
-    return web.json_response({
+    tickers = {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols}
+    resp: Dict[str, Any] = {
         "symbols": state.top_symbols,
         "count": len(state.top_symbols),
-        "tickers": {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols},
-    })
+        "tickers": tickers,
+    }
+    if state.client.ticker_metrics:
+        resp["all_symbols"] = list(state.client.ticker_metrics.keys())
+    return web.json_response(resp)
 
 def build_structure_payload(
     state: "WebServerState",
@@ -197,28 +352,8 @@ def build_structure_payload(
     time_step = (klines[-1]["timestamp"] - klines[-2]["timestamp"]) // 1000 if n_bars > 1 else 0
     next_time = int(klines[-1]["timestamp"] / 1000) + time_step
 
-    tv_trendlines = []
-    for tl in trendlines:
-        idx1, p1 = tl.point1
-        idx2, p2 = tl.point2
-        if idx1 < n_bars and idx2 < n_bars:
-            tv_trendlines.append({
-                "time1": int(klines[idx1]["timestamp"] / 1000),
-                "price1": p1,
-                "time2": int(klines[idx2]["timestamp"] / 1000),
-                "price2": p2,
-                "anchor_index": idx2,
-                "point2": [idx2, p2],
-                "next_time": next_time,
-                "curr_time": int(klines[n_bars - 1]["timestamp"] / 1000),
-                "curr_price": tl.value_at(n_bars - 1),
-                "next_price": tl.value_at(n_bars),
-                "is_resistance": tl.is_resistance,
-                "touches": tl.touches,
-                "residual": getattr(tl, "residual", None),
-            })
-
     signal_info = state.active_signals.get(symbol)
+    signal_trendline = None
     if not signal_info:
         for raw_sig in state.technical_engine.analyze_market(klines, symbol=symbol, timeframe=timeframe):
             enriched = state.risk_manager.validate_and_enrich(raw_sig)
@@ -238,20 +373,81 @@ def build_structure_payload(
                     "description": enriched.description,
                     "timestamp": time.time(),
                 }
+                if raw_sig.trendlines:
+                    signal_trendline = raw_sig.trendlines[0]
                 break
 
-    zone_bands = [{"bottom": lo, "top": hi, "kind": "SUPPORT_RESISTANCE"} for lo, hi in sr_zones[:4]]
+    # Select trendlines: if a signal exists, the broken trendline MUST be shown as #1!
+    selected_trendlines = []
+    if signal_trendline:
+        selected_trendlines.append(signal_trendline)
+        opposing = [tl for tl in trendlines if tl.is_resistance != signal_trendline.is_resistance]
+        opposing_selected = state.technical_engine.select_strongest_trendlines(opposing, n_bars=n_bars)
+        if opposing_selected:
+            selected_trendlines.append(opposing_selected[0])
+    else:
+        selected_trendlines = state.technical_engine.select_strongest_trendlines(trendlines, n_bars=n_bars)
+
+    tv_trendlines = []
+    for tl in selected_trendlines:
+        idx1, p1 = tl.point1
+        idx2, p2 = tl.point2
+        if idx1 < n_bars and idx2 < n_bars:
+            tv_trendlines.append({
+                "time1": int(klines[idx1]["timestamp"] / 1000),
+                "price1": p1,
+                "time2": int(klines[idx2]["timestamp"] / 1000),
+                "price2": p2,
+                "anchor_index": idx2,
+                "point2": [idx2, p2],
+                "next_time": next_time,
+                "curr_time": int(klines[n_bars - 1]["timestamp"] / 1000),
+                "curr_price": tl.value_at(n_bars - 1),
+                "next_price": tl.value_at(n_bars),
+                "is_resistance": tl.is_resistance,
+                "touches": tl.touches,
+                "residual": getattr(tl, "residual", None),
+            })
+
+    # Crisp, elegant S/R bands (max +-0.15% padding so it never covers the screen)
+    zone_bands = []
+    for lo, hi in sr_zones[:3]:
+        mid = (lo + hi) / 2
+        pad = min(max(abs(hi - lo) / 2, mid * 0.0008), mid * 0.0018)
+        zone_bands.append({"bottom": mid - pad, "top": mid + pad, "kind": "SUPPORT_RESISTANCE"})
     fvg_bands = [dict(fvg) for fvg in (fvgs[-4:] if fvgs else [])]
     for band in fvg_bands:
         band["end_index"] = n_bars - 1
 
+    raw_obs = state.technical_engine.detect_order_blocks(klines, swings, unmitigated_only=True)
+    curr_price = float(klines[-1]["close"])
+    demands = [ob for ob in raw_obs if ob["type"] == "BULLISH_OB" and ob["top"] <= curr_price * 1.008]
+    supplies = [ob for ob in raw_obs if ob["type"] == "BEARISH_OB" and ob["bottom"] >= curr_price * 0.992]
+    clean_obs = []
+    if demands:
+        clean_obs.append(max(demands, key=lambda x: x["top"]))
+    if supplies:
+        clean_obs.append(min(supplies, key=lambda x: x["bottom"]))
+    order_blocks = clean_obs if clean_obs else raw_obs[-2:]
+
+    structure_breaks = state.technical_engine.detect_market_structure_shifts(klines, swings)
+    regression_channel = state.technical_engine.calculate_regression_channel(klines, window=60)
+    forecast_path = state.technical_engine.generate_forecast_path(signal_info, klines) if signal_info else []
+    regime_info = state.technical_engine.detect_market_regime(klines)
+
     return {
         "symbol": symbol,
         "timeframe": timeframe,
+        "regime": regime_info["regime"],
+        "adx": regime_info["adx"],
         "trendlines": tv_trendlines,
         "sr_zones": sr_zones[:4],
         "zone_bands": zone_bands,
         "fvgs": fvg_bands,
+        "order_blocks": order_blocks,
+        "structure_breaks": structure_breaks,
+        "regression_channel": regression_channel or {},
+        "forecast_path": forecast_path,
         "signal": signal_info,
     }
 
@@ -260,9 +456,14 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     symbol = request.query.get("symbol", "BTCUSDT").upper()
     timeframe = request.query.get("timeframe", state.config.timeframe)
-    limit = int(request.query.get("limit", "100"))
+    limit = int(request.query.get("limit", "1000"))
+    end_time_raw = request.query.get("endTime")
+    end_time = int(end_time_raw) if end_time_raw and end_time_raw.isdigit() else None
 
-    klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit)
+    if end_time is not None:
+        klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit, endTime=end_time)
+    else:
+        klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit)
     if not klines:
         return web.json_response({"error": f"Không lấy được nến cho {symbol}"}, status=404)
 
@@ -278,7 +479,8 @@ async def handle_api_chart(request: web.Request) -> web.Response:
             "open": k["open"],
             "high": k["high"],
             "low": k["low"],
-            "close": k["close"]
+            "close": k["close"],
+            "volume": float(k.get("volume", 0.0))
         })
         is_bull = k["close"] >= k["open"]
         tv_volumes.append({
@@ -290,12 +492,18 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     return web.json_response({
         "symbol": symbol,
         "timeframe": timeframe,
+        "regime": structure["regime"],
+        "adx": structure["adx"],
         "candles": tv_candles,
         "volumes": tv_volumes,
         "trendlines": structure["trendlines"],
         "sr_zones": structure["sr_zones"],
         "zone_bands": structure["zone_bands"],
         "fvgs": structure["fvgs"],
+        "order_blocks": structure["order_blocks"],
+        "structure_breaks": structure["structure_breaks"],
+        "regression_channel": structure["regression_channel"],
+        "forecast_path": structure["forecast_path"],
         "signal": structure["signal"]
     })
 
@@ -336,8 +544,13 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
     state: WebServerState = request.app["state"]
     symbol = request.query.get("symbol", "").upper()
     timeframe = request.query.get("timeframe", "")
-    if timeframe not in MARKET_WS_TIMEFRAMES or not MARKET_SYMBOL_RE.fullmatch(symbol) or symbol not in state.top_symbols:
+    if timeframe not in MARKET_WS_TIMEFRAMES or not MARKET_SYMBOL_RE.fullmatch(symbol):
         return web.json_response({"error": "invalid_subscription"}, status=400)
+    if symbol not in state.top_symbols:
+        if symbol in state.client.ticker_metrics:
+            state.top_symbols.append(symbol)
+        else:
+            return web.json_response({"error": "invalid_subscription"}, status=400)
 
     ws = web.WebSocketResponse(heartbeat=20.0)
     await ws.prepare(request)
@@ -363,6 +576,47 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
             downstream_closed.set()
 
     downstream_task = asyncio.create_task(watch_downstream())
+
+    async def stream_ticks():
+        """Relay sub-second live ticks from Binance bookTicker directly to the browser."""
+        while not ws.closed and not downstream_closed.is_set():
+            session = None
+            try:
+                session = aiohttp.ClientSession()
+                url = f"wss://fstream.binance.com/ws/{symbol.lower()}@bookTicker"
+                async with session.ws_connect(url, heartbeat=20.0) as upstream:
+                    async for msg in upstream:
+                        if ws.closed or downstream_closed.is_set():
+                            break
+                        if msg.type == WSMsgType.TEXT:
+                            try:
+                                d = json.loads(msg.data)
+                                bid = float(d["b"])
+                                ask = float(d["a"])
+                                if bid > 0 and ask >= bid:
+                                    mid = (bid + ask) / 2
+                                    if not await send({
+                                        "type": "tick",
+                                        "symbol": symbol,
+                                        "price": mid,
+                                        "bid": bid,
+                                        "ask": ask,
+                                        "time": int(d.get("E", 0))
+                                    }):
+                                        break
+                            except Exception:
+                                pass
+                        elif msg.type in (WSMsgType.CLOSED, WSMsgType.ERROR):
+                            break
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(2)
+            finally:
+                if session and not session.closed:
+                    await session.close()
+
+    tick_task = asyncio.create_task(stream_ticks())
     history: List[Dict[str, Any]] = []
     try:
         while not ws.closed and not downstream_closed.is_set():
@@ -442,6 +696,12 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
             await asyncio.sleep(websocket_backoff_delay(attempt))
     finally:
         downstream_closed.set()
+        if tick_task and not tick_task.done():
+            tick_task.cancel()
+            try:
+                await tick_task
+            except asyncio.CancelledError:
+                pass
         if not downstream_task.done():
             downstream_task.cancel()
         try:
@@ -465,16 +725,35 @@ async def background_scanner_loop(app: web.Application):
     finally:
         await state.client.close()
 
+async def background_news_loop(app: web.Application):
+    """Advisory headline refresh. Fail-open: never blocks or alters scanning."""
+    state: WebServerState = app["state"]
+    try:
+        while True:
+            try:
+                await state.news_service.refresh()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[News] Refresh failed: {exc}")
+            await asyncio.sleep(NEWS_POLL_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await state.news_service.close()
+
 async def start_background_tasks(app: web.Application):
     app["scanner_task"] = asyncio.create_task(background_scanner_loop(app))
+    app["news_task"] = asyncio.create_task(background_news_loop(app))
 
 async def cleanup_background_tasks(app: web.Application):
-    if "scanner_task" in app:
-        app["scanner_task"].cancel()
-        try:
-            await app["scanner_task"]
-        except asyncio.CancelledError:
-            pass
+    for key in ("scanner_task", "news_task"):
+        if key in app:
+            app[key].cancel()
+            try:
+                await app[key]
+            except asyncio.CancelledError:
+                pass
 
 async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     cfg = config or ScannerConfig.load("config.json")
@@ -486,6 +765,9 @@ async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     app.router.add_get("/api/status", handle_api_status)
     app.router.add_get("/api/symbols", handle_api_symbols)
     app.router.add_get("/api/chart", handle_api_chart)
+    app.router.add_get("/api/signals", handle_api_signals)
+    app.router.add_get("/api/news", handle_api_news)
+    app.router.add_get("/api/signals/{id}/chart", handle_api_signal_chart)
     app.router.add_post("/api/scan", handle_api_scan)
     app.router.add_get("/ws/stream", handle_ws)
     app.router.add_get("/ws/market", handle_market_ws)

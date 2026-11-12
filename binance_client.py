@@ -62,7 +62,7 @@ class BinanceClient:
             print(f"[BinanceClient] Error fetching top symbols: {e}")
             return []
 
-    async def get_klines(self, symbol: str, interval: str = "15m", limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_klines(self, symbol: str, interval: str = "15m", limit: int = 500, endTime: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Fetch OHLCV candlesticks for a specific symbol.
         Format:
@@ -80,11 +80,13 @@ class BinanceClient:
         ]
         """
         url = f"{self.base_url}/fapi/v1/klines"
-        params = {
+        params: Dict[str, Any] = {
             "symbol": symbol,
             "interval": interval,
-            "limit": limit
+            "limit": min(limit, 1500)
         }
+        if endTime is not None:
+            params["endTime"] = endTime
         try:
             raw_klines = await self._fetch_json(url, params=params)
             formatted = []
@@ -102,3 +104,24 @@ class BinanceClient:
         except Exception as e:
             print(f"[BinanceClient] Error fetching klines for {symbol}: {e}")
             return []
+
+    async def get_open_interest(self, symbol: str) -> float:
+        """Fetch current open interest from Binance Futures public API."""
+        url = f"{self.base_url}/fapi/v1/openInterest"
+        try:
+            data = await self._fetch_json(url, params={"symbol": symbol})
+            return float(data.get("openInterest", 0.0))
+        except Exception as e:
+            print(f"[BinanceClient] Error fetching open interest for {symbol}: {e}")
+            return 0.0
+
+    async def get_funding_rate(self, symbol: str) -> float:
+        """Fetch latest funding rate from Binance Futures premiumIndex endpoint."""
+        url = f"{self.base_url}/fapi/v1/premiumIndex"
+        try:
+            data = await self._fetch_json(url, params={"symbol": symbol})
+            return float(data.get("lastFundingRate", 0.0))
+        except Exception as e:
+            print(f"[BinanceClient] Error fetching funding rate for {symbol}: {e}")
+            return 0.0
+

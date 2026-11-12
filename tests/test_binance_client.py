@@ -99,3 +99,16 @@ async def test_get_klines():
         assert klines[0]["low"] == 64900.0
         assert klines[0]["close"] == 65200.0
         assert klines[0]["volume"] == 120.5
+
+
+@pytest.mark.asyncio
+async def test_get_open_interest_and_funding_rate():
+    client = BinanceClient()
+    with patch.object(client, "_fetch_json", return_value={"symbol": "BTCUSDT", "openInterest": "54231.543"}):
+        oi = await client.get_open_interest("BTCUSDT")
+        assert oi == 54231.543
+
+    with patch.object(client, "_fetch_json", return_value={"symbol": "BTCUSDT", "lastFundingRate": "0.00010000"}):
+        fr = await client.get_funding_rate("BTCUSDT")
+        assert fr == 0.0001
+

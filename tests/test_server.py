@@ -26,7 +26,7 @@ async def test_root_serves_dashboard_ui(aiohttp_client):
     body = await response.text()
     assert "FUTURES DESK" in body
     assert "SCAN MARKET" in body
-    assert "lightweight-charts" in body
+    assert "charting_library" in body
     assert "chart_stream.js" in body
     assert "ws/market" in body
     assert 'aria-label="Overlay controls"' in body
@@ -282,6 +282,51 @@ async def test_signal_socket_close_does_not_override_market_state(aiohttp_client
 
 
 @pytest.mark.asyncio
+async def test_structure_payload_trendlines_have_realistic_touches(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+
+    # 16 bars with clear descending swing highs
+    base_ts = 1793586600000
+    prices = [
+        (96, 98, 95, 97),   # 0
+        (97, 99, 96, 98),   # 1
+        (98, 100, 97, 99),  # 2 - SWING HIGH 1 (100)
+        (96, 97, 94, 95),   # 3
+        (93, 97.5, 92, 94), # 4
+        (93, 96.95, 92, 94),# 5
+        (91, 93.5, 90, 92), # 6
+        (90, 92, 89, 91),   # 7
+        (91, 94, 90, 93),   # 8 - SWING HIGH 2 (94)
+        (90, 92, 89, 91),   # 9
+        (89, 91, 88, 90),   # 10
+        (88, 90, 87, 89),   # 11
+        (87, 88, 85, 86),   # 12
+        (86, 88, 85, 87),   # 13
+        (86, 88, 85, 87),   # 14
+        (85, 86, 84, 85),   # 15
+    ]
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": o, "high": h, "low": l, "close": c, "volume": 100.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i, (o, h, l, c) in enumerate(prices)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m")
+    assert res.status == 200
+    payload = await res.json()
+    assert "trendlines" in payload
+    # Every trendline emitted MUST have a realistic touch count (< 10)
+    for tl in payload["trendlines"]:
+        assert tl["touches"] >= 2
+        assert tl["touches"] <= 6, f"Touch count {tl['touches']} is too high for a 16-bar series!"
+        assert "residual" in tl
+        assert "next_price" in tl
+
+
+
+@pytest.mark.asyncio
 async def test_dashboard_exposes_realtime_chart_controls(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1))
     client = await aiohttp_client(app)
@@ -290,3 +335,379 @@ async def test_dashboard_exposes_realtime_chart_controls(aiohttp_client):
     assert "ws/market" in body
     assert 'aria-label="Overlay controls"' in body
     assert "quoteVolume" in body
+
+
+@pytest.mark.asyncio
+async def test_api_signals_and_historical_chart_endpoints(aiohttp_client, tmp_path):
+    from signal_tracker import SignalTracker
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    # inject tracker with temp db
+    tracker = SignalTracker(db_path=str(tmp_path / "test_api_signals.db"))
+    app["state"].signal_tracker = tracker
+
+    # 1. Save dummy signal
+    sig = {
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "BREAKOUT",
+        "entry_price": 78000.0,
+        "stop_loss": 77000.0,
+        "tp1": 80200.0,
+        "tp2": 81000.0,
+        "risk_reward": 2.2,
+        "sl_pct": 0.0128,
+        "description": "Bullish Breakout over Resistance Trendline",
+        "timestamp": 1700000000.0,
+    }
+    klines = [
+        {"timestamp": 1699990000000, "open": 77500, "high": 78100, "low": 77400, "close": 78000, "volume": 100},
+        {"timestamp": 1700000000000, "open": 78000, "high": 81200, "low": 77900, "close": 81000, "volume": 120},
+    ]
+    sig_id = tracker.save_signal(sig, klines)
+    # Win it
+    tracker.evaluate_signal(sig_id, klines[1])
+
+    client = await aiohttp_client(app)
+
+    # Test /api/signals
+    res = await client.get("/api/signals")
+    assert res.status == 200
+    data = await res.json()
+    assert "signals" in data
+    assert "stats" in data
+    assert len(data["signals"]) == 1
+    assert data["signals"][0]["status"] == "WIN"
+    assert data["stats"]["wins"] == 1
+    assert data["stats"]["win_rate"] == 100.0
+
+    # Test /api/signals/{id}/chart
+    res_chart = await client.get(f"/api/signals/{sig_id}/chart")
+    assert res_chart.status == 200
+    chart_data = await res_chart.json()
+    assert chart_data["symbol"] == "BTCUSDT"
+    assert "candles" in chart_data
+    assert len(chart_data["candles"]) == 2
+    assert chart_data["signal"]["status"] == "WIN"
+
+
+@pytest.mark.asyncio
+async def test_structure_payload_includes_smc_and_forecast(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+
+    base_ts = 1793586600000
+    prices = [(100 + i * 0.5, 101 + i * 0.5, 99.5 + i * 0.5, 100.5 + i * 0.5) for i in range(30)]
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": o, "high": h, "low": l, "close": c, "volume": 100.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i, (o, h, l, c) in enumerate(prices)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m")
+    assert res.status == 200
+    payload = await res.json()
+    assert "order_blocks" in payload
+    assert "regression_channel" in payload
+    assert "forecast_path" in payload
+    reg = payload["regression_channel"]
+    assert "upper_series" in reg and "lower_series" in reg
+    assert len(reg["upper_series"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_api_chart_supports_pagination_with_endtime(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+    state.client.get_klines = AsyncMock(return_value=[
+        {"timestamp": 1700000000000, "open": 100, "high": 105, "low": 99, "close": 102, "volume": 50, "close_time": 1700000900000 - 1}
+    ])
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m&limit=500&endTime=1700000000000")
+    assert res.status == 200
+    state.client.get_klines.assert_called_with("BTCUSDT", interval="15m", limit=500, endTime=1700000000000)
+
+
+# ---------------------------------------------------------------------------
+# News advisory API (Task 1) — cache-only, advisory, isolated from scan
+# ---------------------------------------------------------------------------
+
+def _news_rss(items_xml: str) -> bytes:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0"><channel><title>Test</title>'
+        f"{items_xml}</channel></rss>"
+    ).encode()
+
+
+def _gn_item(title: str, link: str) -> str:
+    return (
+        f"<item><title>{title}</title><link>{link}</link>"
+        "<pubDate>Tue, 11 Nov 2026 09:00:01 GMT</pubDate></item>"
+    )
+
+
+async def _app_with_news(aiohttp_client, active_symbols=()):
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+    state.active_signals = {sym: {"symbol": sym, "status": "OPEN"} for sym in active_symbols}
+
+    sec_body = _news_rss(_gn_item("SEC approves first spot Bitcoin ETF - Reuters",
+                                  "https://www.sec.gov/news/press-release/sec-etf"))
+    fed_body = _news_rss(_gn_item("Federal Reserve holds rates as inflation cools - CNBC",
+                                  "https://www.federalreserve.gov/newsevents/pressreleases/hold"))
+    gn_body = _news_rss(
+        _gn_item("Ethereum completes upgrade, ETH jumps - Bloomberg",
+                 "https://news.google.com/rss/articles/eth1")
+        + _gn_item("Solana network outage resolved - CoinDesk",
+                   "https://news.google.com/rss/articles/sol1")
+    )
+
+    class _Resp:
+        def __init__(self, body, content_type="application/xml"):
+            self.status = 200
+            self.content_type = content_type
+            self._body = body
+            self.closed = False
+
+            class _Content:
+                async def iter_chunked(inner_self, n):  # noqa: ARG002
+                    yield body
+
+            self.content = _Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            self.close()
+            return False
+
+        def close(self):
+            self.closed = True
+
+    class _Session:
+        def __init__(self):
+            self.calls = 0
+            self.closed = False
+
+        def get(self, url, **kwargs):  # noqa: ARG002
+            self.calls += 1
+            if "sec.gov" in url:
+                return _Resp(sec_body)
+            if "federalreserve.gov" in url:
+                return _Resp(fed_body)
+            return _Resp(gn_body, "application/rss+xml")
+
+        async def close(self):
+            self.closed = True
+
+    session = _Session()
+    from news_service import NewsService
+    state.news_service = NewsService(clock=lambda: 1_794_400_000.0, session_factory=lambda: session)
+    await state.news_service.refresh()
+    client = await aiohttp_client(app)
+    return client, state, session
+
+
+@pytest.mark.asyncio
+async def test_api_news_returns_global_active_and_selected_symbol_items(aiohttp_client):
+    client, state, session = await _app_with_news(aiohttp_client, active_symbols=("ETHUSDT",))
+
+    res = await client.get("/api/news?symbol=BTCUSDT")
+    assert res.status == 200
+    payload = await res.json()
+    titles = [i["title"] for i in payload["items"]]
+    # selected symbol (BTC via "Bitcoin ETF" alias match)
+    assert any("Bitcoin ETF" in t for t in titles)
+    # active-signal symbol ETH
+    assert any("Ethereum" in t for t in titles)
+    # broad market
+    assert any("Federal Reserve" in t for t in titles)
+    assert payload["stale"] is False
+    assert payload["sources_ok"] is True
+    assert len(payload["items"]) <= 50
+    for item in payload["items"]:
+        assert item["url"].startswith("https://")
+
+    # missing symbol: broad-market + active-signal headlines only
+    res2 = await client.get("/api/news")
+    assert res2.status == 200
+    titles2 = [i["title"] for i in (await res2.json())["items"]]
+    assert any("Federal Reserve" in t for t in titles2)
+    assert any("Ethereum" in t for t in titles2)
+    assert not any("Solana" in t for t in titles2)  # SOL not selected/active -> excluded
+
+    # no upstream fetch on the request path
+    assert session.calls == 4  # only the 4 startup refreshes
+
+
+@pytest.mark.asyncio
+async def test_api_news_rejects_invalid_symbol_and_does_not_fetch_upstream(aiohttp_client):
+    client, state, session = await _app_with_news(aiohttp_client)
+
+    for bad in ("btc", "BTC", "BTCUSD", "../../etc/passwd", "BTCUSDT%20"):
+        res = await client.get(f"/api/news?symbol={bad}")
+        assert res.status == 400, bad
+    assert session.calls == 4  # rejected requests never hit upstream
+
+
+@pytest.mark.asyncio
+async def test_news_feed_failure_does_not_block_scan():
+    """Failing RSS refresh must never block or alter the technical scan."""
+    from unittest.mock import MagicMock, patch
+
+    from news_service import NewsService
+    from risk_manager import EnrichedSignal
+    from technical_engine import MarketSignal, PatternType
+
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+
+    class FailingSession:
+        def get(self, url, **kwargs):  # noqa: ARG002
+            raise RuntimeError("feed transport down")
+
+        async def close(self):
+            pass
+
+    state.news_service = NewsService(clock=lambda: 1_794_400_000.0, session_factory=FailingSession)
+    # even a hung/blocking feed must not stall the scan
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
+
+    base_ts = 1794386600000
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": 60000 + i * 10, "high": 60100 + i * 10,
+         "low": 59950 + i * 10, "close": 60020 + i * 10, "volume": 200.0,
+         "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(30)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    state.signal_tracker.save_signal = MagicMock(return_value=99)
+
+    raw = MarketSignal(symbol="BTCUSDT", timeframe="15m", signal_type="LONG",
+                       pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=60100.0,
+                       stop_loss=59600.0, take_profit=61350.0, risk_reward=2.5,
+                       description="Test")
+    enriched = EnrichedSignal(symbol="BTCUSDT", timeframe="15m", signal_type="LONG",
+                              pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=60100.0,
+                              stop_loss=59600.0, take_profit=61350.0, risk_reward=2.5,
+                              description="Test", extra_targets={"tp1": 60850.0, "tp2": 61350.0},
+                              sl_pct=0.008)
+
+    with patch.object(state.technical_engine, "analyze_market", return_value=[raw]):
+        with patch.object(state.risk_manager, "validate_and_enrich", return_value=enriched):
+            with patch.object(state.notifier, "send_chart_alert", AsyncMock(return_value=True)):
+                # news refresh fails hard
+                await state.news_service.refresh()
+                status_before = state.news_service.status()
+                assert status_before["stale"] is True
+                assert status_before["sources_ok"] is False
+
+                # scan still runs and emits the technical signal
+                found = await asyncio.wait_for(state.run_scan(), timeout=10)
+                assert len(found) == 1
+                assert found[0]["symbol"] == "BTCUSDT"
+                assert found[0]["entry_price"] == 60100.0
+                assert found[0]["signal_type"] == "LONG"
+
+                # news service was not consulted by the scan
+                status_after = state.news_service.status()
+                assert status_after["fetched_at"] == status_before["fetched_at"]
+
+
+@pytest.mark.asyncio
+async def test_run_scan_enforces_single_active_position_per_symbol():
+    """If a symbol currently has an active OPEN position, run_scan must skip generating new signals for it."""
+    from unittest.mock import MagicMock, patch
+    from risk_manager import EnrichedSignal
+    from technical_engine import MarketSignal, PatternType
+
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+
+    # Mark BTCUSDT as having an OPEN position
+    state.active_signals["BTCUSDT"] = {"symbol": "BTCUSDT", "status": "OPEN", "id": 10}
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
+
+    base_ts = 1794386600000
+    klines = [
+        {"timestamp": base_ts + i * 900000, "open": 60000 + i * 10, "high": 60100 + i * 10,
+         "low": 59950 + i * 10, "close": 60020 + i * 10, "volume": 200.0,
+         "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(30)
+    ]
+    state.client.get_klines = AsyncMock(return_value=klines)
+    state.signal_tracker.evaluate_open_signals = MagicMock(return_value=[])
+
+    raw = MarketSignal(symbol="BTCUSDT", timeframe="15m", signal_type="SHORT",
+                       pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=60100.0,
+                       stop_loss=60600.0, take_profit=59000.0, risk_reward=2.2,
+                       description="Opposing Short")
+
+    with patch.object(state.technical_engine, "analyze_market", return_value=[raw]) as mock_analyze:
+        found = await state.run_scan()
+        # Should not generate a new signal for BTCUSDT because an OPEN position is already active
+        assert len(found) == 0
+        mock_analyze.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_scan_pauses_altcoins_on_btc_circuit_breaker():
+    """When Bitcoin suffers extreme volatility spike, run_scan skips altcoins."""
+    from unittest.mock import MagicMock, patch
+    from risk_manager import EnrichedSignal
+    from technical_engine import MarketSignal, PatternType
+
+    app = await create_app(ScannerConfig(top_n_coins=2, timeframe="15m"))
+    state = app["state"]
+
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT", "ETHUSDT"])
+
+    base_ts = 1794386600000
+    # Create BTC klines with violent 2.5% flash dump on latest candle
+    btc_klines = [
+        {"timestamp": base_ts + i * 900000, "open": 60000, "high": 60100, "low": 59900, "close": 60000, "volume": 100.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(25)
+    ]
+    btc_klines.append({
+        "timestamp": base_ts + 25 * 900000,
+        "open": 60000.0,
+        "high": 60100.0,
+        "low": 58000.0,
+        "close": 58200.0,
+        "volume": 5000.0,
+        "close_time": base_ts + 26 * 900000 - 1,
+    })
+
+    eth_klines = [
+        {"timestamp": base_ts + i * 900000, "open": 3000, "high": 3050, "low": 2980, "close": 3020, "volume": 50.0, "close_time": base_ts + (i + 1) * 900000 - 1}
+        for i in range(25)
+    ]
+
+    async def mock_get_klines(sym, interval="15m", limit=80, endTime=None):
+        if sym == "BTCUSDT":
+            return btc_klines
+        return eth_klines
+
+    state.client.get_klines = AsyncMock(side_effect=mock_get_klines)
+    state.signal_tracker.evaluate_open_signals = MagicMock(return_value=[])
+
+    raw_eth = MarketSignal(symbol="ETHUSDT", timeframe="15m", signal_type="LONG",
+                           pattern=PatternType.TRENDLINE_BREAKOUT, entry_price=3020.0,
+                           stop_loss=2950.0, take_profit=3200.0, risk_reward=2.5,
+                           description="ETH Breakout")
+
+    def mock_analyze(klines, symbol="BTCUSDT", timeframe="15m", htf_bias="NEUTRAL"):
+        if symbol == "ETHUSDT":
+            return [raw_eth]
+        return []
+
+    with patch.object(state.technical_engine, "analyze_market", side_effect=mock_analyze):
+        found = await state.run_scan()
+        # ETHUSDT signal should be skipped because BTC circuit breaker is active!
+        eth_found = [s for s in found if s["symbol"] == "ETHUSDT"]
+        assert len(eth_found) == 0
+
+
