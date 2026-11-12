@@ -22,7 +22,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 
 
-MARKET_WS_TIMEFRAMES = {"15m", "1h", "4h"}
+MARKET_WS_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
 MARKET_STALE_AFTER_SECONDS = 15.0
 MARKET_WS_POLL_SECONDS = 3.0
 MARKET_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,30}USDT$")

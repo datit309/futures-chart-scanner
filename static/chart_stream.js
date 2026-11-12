@@ -200,6 +200,7 @@ export function formatTrendlineShape(line) {
       overrides: {
         linecolor: line.is_resistance ? '#f5b84b' : '#65cfff',
         linewidth: 2,
+        extendRight: true,
       }
     }
   };
@@ -261,14 +262,19 @@ export function formatStructureBreakShape(item) {
   };
 }
 
-export function formatPositionShape(signal, lastCandle) {
+export function formatPositionShape(signal, lastCandle, timeframe = '15m') {
   if (!signal || !signal.entry_price || !lastCandle) return null;
   const entry = Number(signal.entry_price);
   const sl = Number(signal.stop_loss);
   const tp = Number(signal.tp2 || signal.take_profit || signal.tp1);
   const isShort = signal.signal_type === 'SHORT';
   const tStart = lastCandle.time;
-  const timeStep = 900;
+  const tfSecMap = {
+    '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+    '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200,
+    '1d': 86400, '1w': 604800
+  };
+  const timeStep = tfSecMap[String(timeframe || '15m').toLowerCase()] || 900;
   const tEnd = lastCandle.time + timeStep * 12;
 
   const tpDiff = ((tp - entry) / entry * 100).toFixed(2);

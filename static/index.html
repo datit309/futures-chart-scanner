@@ -607,8 +607,11 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       }
 
       // 2. Institutional Fresh Order Blocks - max 2 (1 Demand, 1 Supply)
+      const candles = structure.candles || state.chartPayload?.candles;
       if(o.ob&&structure.order_blocks?.length){
-        const lastTime=structure.candles?.at(-1)?.time||Math.floor(Date.now()/1000);
+        const lastCandleTime = candles?.at(-1)?.time;
+        const stepSec = candles && candles.length >= 2 ? (candles[candles.length - 1].time - candles[candles.length - 2].time) : 3600;
+        const lastTime = lastCandleTime ? (lastCandleTime + stepSec * 10) : Math.floor(Date.now()/1000);
         structure.order_blocks.slice(-2).forEach(ob=>{
           const s=formatOrderBlockShape(ob,lastTime);
           c.createMultipointShape(s.points,s.options);
@@ -634,7 +637,6 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
       // 4. Signal Trade Visuals (Pointer Arrow, Entry, SL, TP, and Profit/Stop Boxes)
       const sig=structure.signal;
-      const candles=structure.candles;
       if(o.position&&sig&&sig.entry_price&&candles?.length){
         const sigSec=Math.floor(sig.timestamp||candles.at(-1).time);
         let targetCandle=candles.at(-1);
@@ -644,7 +646,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
             break;
           }
         }
-        const posShapes=formatPositionShape(sig,targetCandle);
+        const posShapes=formatPositionShape(sig,targetCandle,state.timeframe);
         if(posShapes){
           const pBoxId = posShapes.profitBox ? c.createMultipointShape(posShapes.profitBox.points, posShapes.profitBox.options) : null;
           const sBoxId = posShapes.stopBox ? c.createMultipointShape(posShapes.stopBox.points, posShapes.stopBox.options) : null;
@@ -660,7 +662,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     }catch(err){console.warn('renderTradingViewDrawings error:',err);}
   }
 
-  function applyTimeRange(days=state.rangeDays||'3'){
+  function applyTimeRange(days=state.rangeDays||'default'){
     state.rangeDays=days;
     $$('.range-btn').forEach(b=>b.classList.toggle('active',b.dataset.days===String(days)));
     if(!state.widget||!state.chartReady||!state.chartPayload?.candles?.length)return;
@@ -671,10 +673,16 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       if(days==='all'){
         c.setVisibleRange({from:candles[0].time,to:lastTime+3600*6});
       }else{
-        const numDays=Number(days)||3;
+        let numDays = Number(days);
+        if(!numDays){
+          const tfDaysMap = { '1m': 0.5, '5m': 1, '15m': 3, '1h': 14, '4h': 45, '1d': 180 };
+          numDays = tfDaysMap[state.timeframe] || 3;
+        }
         const targetFrom=lastTime-(numDays*86400);
         const fromTime=Math.max(candles[0].time,targetFrom);
-        c.setVisibleRange({from:fromTime,to:lastTime+3600*6});
+        const stepSec = candles.length >= 2 ? (candles[candles.length - 1].time - candles[candles.length - 2].time) : 900;
+        const forwardSec = stepSec * 8;
+        c.setVisibleRange({from:fromTime,to:lastTime+forwardSec});
       }
     }catch(err){console.warn('applyTimeRange error:',err);}
   }
@@ -759,8 +767,26 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
       state.chartReady=true;
       if(state.chartPayload){
         renderTradingViewDrawings(state.chartPayload);
-        applyTimeRange(state.rangeDays||'3');
+        applyTimeRange(state.rangeDays||'default');
       }
+
+      try{
+        const c=state.widget.chart();
+        if(c.onIntervalChanged){
+          c.onIntervalChanged().subscribe(null,(interval)=>{
+            const revMap = { '1': '1m', '3': '3m', '5': '5m', '15': '15m', '30': '30m', '60': '1h', '120': '2h', '240': '4h', 'D': '1d', 'W': '1w' };
+            const newTf = revMap[interval] || interval;
+            if(newTf && newTf !== state.timeframe){
+              state.timeframe = newTf;
+              $('#frameLabel').textContent = state.timeframe;
+              $$('.tf').forEach(b => b.classList.toggle('active', b.dataset.tf === state.timeframe));
+              if(state.marketWs){ state.marketWs.onclose = null; state.marketWs.close(); state.marketWs = null; }
+              connectMarketWs();
+              loadChart();
+            }
+          });
+        }
+      }catch(err){console.warn('onIntervalChanged subscription error:',err);}
 
       try{
         const c=state.widget.chart();
@@ -876,7 +902,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   async function loadSymbols(){try{const r=await fetch('/api/symbols');if(!r.ok)throw Error('symbols '+r.status);const d=await r.json();state.symbols=d.symbols||[];state.allSymbols=d.all_symbols||d.symbols||[];state.tickers=d.tickers||{};if(state.tickers.BTCUSDT){$('#btcPrice').textContent=fmt(state.tickers.BTCUSDT.lastPrice);$('#btcChange').textContent=`${Number(state.tickers.BTCUSDT.priceChangePercent).toFixed(2)}%`;$('#btcVol').textContent=`24H VOL ${fmt(state.tickers.BTCUSDT.quoteVolume)}`}$('#pairCount').textContent=state.symbols.length;$('#universeLabel').textContent=(state.symbols.length||30)+' PAIRS';renderWatchlist();const sel=$('#symbolSelect');sel.innerHTML=state.symbols.map(s=>`<option value="${s}">${s}</option>`).join('');if(!state.symbols.includes(state.symbol))sel.insertAdjacentHTML('afterbegin',`<option value="${state.symbol}">${state.symbol}</option>`);sel.value=state.symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=state.symbol;renderSymbolDropdown();}catch(e){console.warn(e);$('#connection').textContent='API OFFLINE'}}
 
-  async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'1000'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;const rb=$('#regimeBadge');if(rb&&d.regime){rb.textContent=`${d.regime} (ADX ${d.adx!=null?d.adx:'--'})`;rb.style.color=d.regime==='RANGING'?'var(--amber)':'var(--green)';}renderTradingViewDrawings(d);applyTimeRange(state.rangeDays||'3');if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
+  async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'1000'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;const rb=$('#regimeBadge');if(rb&&d.regime){rb.textContent=`${d.regime} (ADX ${d.adx!=null?d.adx:'--'})`;rb.style.color=d.regime==='RANGING'?'var(--amber)':'var(--green)';}renderTradingViewDrawings(d);applyTimeRange(state.rangeDays||'default');if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
 
   async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;$('#symbolSelect').value=symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=symbol;$('#chartSymbol').textContent=symbol;if(newsController)newsController.refresh();if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();}
 
@@ -890,7 +916,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   function applyKline(msg){const c=msg.candle;if(!c)return;if(state.realtimeCallback){state.realtimeCallback({time:c.time*1000,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume});}state.lastTick=Date.now();state.connectedAt=0;$('#lastUpdateAge').textContent='UPDATED JUST NOW';setStreamStatus('connected');$('#chartPrice').textContent=fmt(c.close);if(state.symbol==='BTCUSDT'){$('#btcPrice').textContent=fmt(c.close);}}
 
-  function connectMarketWs(){if(state.marketReconnectTimer){clearTimeout(state.marketReconnectTimer);state.marketReconnectTimer=null}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close()}const generation=(state.marketGeneration||0)+1;state.marketGeneration=generation;state.marketReconnectAttempt=0;const url=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/market?symbol=${encodeURIComponent(state.symbol)}&timeframe=${encodeURIComponent(state.timeframe)}`;state.lastTick=0;state.connectedAt=Date.now();state.marketWs=new WebSocket(url);setStreamStatus('connecting');state.marketWs.onopen=()=>{if(generation===state.marketGeneration){state.connectedAt=Date.now();setStreamStatus('connected')}};state.marketWs.onmessage=async e=>{if(generation!==state.marketGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='status'){setStreamStatus(msg.state);if(msg.state==='reconnecting'&&!state.recovering){state.recovering=true;await loadChart();state.recovering=false}}else if(msg.type==='tick'&&msg.symbol===state.symbol){applyTick(msg)}else if(msg.type==='kline'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){applyKline(msg)}else if(msg.type==='structure'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){state.chartPayload={...state.chartPayload,...msg};renderTradingViewDrawings(msg);}}catch(err){console.error('Market stream message error',err)}};state.marketWs.onclose=()=>{if(generation!==state.marketGeneration)return;setStreamStatus('reconnecting');if(!state.marketReconnectTimer){const attempt=++state.marketReconnectAttempt;const delay=clientReconnectDelay(attempt);state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;await loadChart();connectMarketWs()},delay)}};state.marketWs.onerror=()=>{if(generation===state.marketGeneration)setStreamStatus('error')}}
+  function connectMarketWs(){if(state.marketReconnectTimer){clearTimeout(state.marketReconnectTimer);state.marketReconnectTimer=null}if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close()}const generation=(state.marketGeneration||0)+1;state.marketGeneration=generation;state.marketReconnectAttempt=0;const url=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/market?symbol=${encodeURIComponent(state.symbol)}&timeframe=${encodeURIComponent(state.timeframe)}`;state.lastTick=0;state.connectedAt=Date.now();state.marketWs=new WebSocket(url);setStreamStatus('connecting');state.marketWs.onopen=()=>{if(generation===state.marketGeneration){state.connectedAt=Date.now();setStreamStatus('connected')}};state.marketWs.onmessage=async e=>{if(generation!==state.marketGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='status'){setStreamStatus(msg.state);if(msg.state==='reconnecting'&&!state.recovering){state.recovering=true;await loadChart();state.recovering=false}}else if(msg.type==='tick'&&msg.symbol===state.symbol){applyTick(msg)}else if(msg.type==='kline'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){applyKline(msg)}else if(msg.type==='structure'&&msg.symbol===state.symbol&&msg.timeframe===state.timeframe){state.chartPayload={...state.chartPayload,...msg};renderTradingViewDrawings(state.chartPayload);}}catch(err){console.error('Market stream message error',err)}};state.marketWs.onclose=()=>{if(generation!==state.marketGeneration)return;setStreamStatus('reconnecting');if(!state.marketReconnectTimer){const attempt=++state.marketReconnectAttempt;const delay=clientReconnectDelay(attempt);state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;await loadChart();connectMarketWs()},delay)}};state.marketWs.onerror=()=>{if(generation===state.marketGeneration)setStreamStatus('error')}}
 
   function connectWs(){try{state.ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/stream`);state.ws.onopen=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('connecting')};state.ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='INIT_STATE'||m.type==='SCAN_COMPLETE'||m.type==='SIGNAL_OUTCOME'){loadSignals();loadStatus();loadHistorySignals()}if(m.type==='NEW_SIGNAL'){const s=m.data;toast(`Kèo mới · ${s.symbol} ${s.signal_type}`);loadSignals()}};state.ws.onclose=()=>{if(!state.marketWs||state.marketWs.readyState!==WebSocket.OPEN)setStreamStatus('reconnecting');setTimeout(connectWs,3000)};state.ws.onerror=()=>state.ws.close()}catch{}}
 
