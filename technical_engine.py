@@ -374,6 +374,86 @@ class TechnicalEngine:
             return len(klines) - 2 if len(klines) >= 2 else 0
         return len(klines) - 1
 
+    def detect_rsi_divergence(
+        self,
+        klines: List[Dict[str, Any]],
+        swings: List[SwingPoint],
+        rsi_series: List[float],
+        lookback: int = 40,
+        max_bars_since_swing: int = 20,
+        min_rsi_delta: float = 1.5,
+        min_swing_gap: int = 6,
+    ) -> Optional[str]:
+        """
+        Detect bullish/bearish RSI divergence between two well-separated swing extremes.
+
+        Bullish divergence: price makes a lower low while RSI makes a higher low.
+        Bearish divergence: price makes a higher high while RSI makes a lower high.
+
+        Returns "BULLISH", "BEARISH", or None. Divergence is a mandatory
+        confirmation for mean-reversion entries: without it the engine treats the
+        move as ordinary trend continuation and refuses to catch the falling knife.
+        """
+        n = len(klines)
+        if n < 10 or not rsi_series or len(rsi_series) < n or not swings:
+            return None
+
+        window_start = max(0, n - lookback)
+        recent_lows = [s for s in swings if not s.is_high and window_start <= s.index <= n - 1]
+        recent_highs = [s for s in swings if s.is_high and window_start <= s.index <= n - 1]
+
+        def _check_reversal(recent, is_high):
+            if len(recent) < 2:
+                return None
+            latest = recent[-1]
+            if (n - 1 - latest.index) > max_bars_since_swing:
+                return None
+            prior = None
+            for s in reversed(recent[:-1]):
+                if latest.index - s.index >= min_swing_gap:
+                    prior = s
+                    break
+            if prior is None:
+                return None
+            rsi_latest = rsi_series[latest.index]
+            rsi_prior = rsi_series[prior.index]
+            if not is_high:
+                # Bullish: lower low in price, higher low in RSI
+                if latest.price < prior.price * 0.999 and rsi_latest > rsi_prior + min_rsi_delta:
+                    return "BULLISH"
+            else:
+                # Bearish: higher high in price, lower high in RSI
+                if latest.price > prior.price * 1.001 and rsi_latest < rsi_prior - min_rsi_delta:
+                    return "BEARISH"
+            return None
+
+        return _check_reversal(recent_lows, is_high=False) or _check_reversal(recent_highs, is_high=True)
+
+    @staticmethod
+    def has_strong_rejection_wick(bar: Dict[str, Any], direction: str, min_ratio: float = 1.5) -> bool:
+        """
+        True when the closed candle shows a decisive rejection wick against the move.
+
+        Bullish: lower wick >= min_ratio * body (sellers rejected).
+        Bearish: upper wick >= min_ratio * body (buyers rejected).
+        A doji (body == 0) never qualifies.
+        """
+        try:
+            o = float(bar["open"])
+            c = float(bar["close"])
+            h = float(bar["high"])
+            l = float(bar["low"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        body = abs(c - o)
+        if body <= 0:
+            return False
+        if direction == "BULLISH":
+            wick = min(o, c) - l
+        else:
+            wick = h - max(o, c)
+        return wick >= min_ratio * body
+
     def analyze_market(
         self,
         klines: List[Dict[str, Any]],
@@ -421,20 +501,30 @@ class TechnicalEngine:
         curr_mid = mid_bb[-1]
         curr_lower = lower_bb[-1]
 
-        # 1. RANGE-BOUND REGIME: Mean Reversion Trap (Extreme Overbought/Oversold + Rejection Wick + R:R >= 2.0)
+        # 1. RANGE-BOUND REGIME: Mean Reversion Trap
+        # Hard requirements (all must pass):
+        #   - RSI in extreme zone (<= 35 / >= 65) on the confirmed bar or the prior bar
+        #   - Price touching the Bollinger Band extreme
+        #   - STRONG rejection wick (>= 1.5x body) on the confirmed candle
+        #   - CONFIRMED RSI divergence (price vs momentum disagree = exhaustion, not trend)
+        #   - R:R >= 2.5 (only high-quality reversal setups are worth the risk)
         if regime == "RANGING":
-            is_oversold = curr_rsi <= 45 or (len(rsi_series) >= 2 and rsi_series[-2] <= 45)
+            divergence = self.detect_rsi_divergence(klines, swings, rsi_series)
+            prev_rsi = rsi_series[-2] if len(rsi_series) >= 2 else curr_rsi
+
+            is_oversold = min(curr_rsi, prev_rsi) <= 35.0
             has_lower_touch = float(confirmed_bar["low"]) <= curr_lower * 1.002 or float(latest_bar["low"]) <= curr_lower * 1.002
             has_rejection = curr_price > float(confirmed_bar["low"])
+            strong_rejection = self.has_strong_rejection_wick(confirmed_bar, "BULLISH")
 
-            if is_oversold and has_lower_touch and has_rejection:
+            if is_oversold and has_lower_touch and has_rejection and strong_rejection and divergence == "BULLISH":
                 sl = min(float(confirmed_bar["low"]), float(latest_bar["low"])) - curr_atr * 0.25
                 risk = curr_price - sl
                 if risk > 0 and curr_upper > curr_price:
                     tp1 = curr_mid
                     tp2 = curr_upper
                     rr = (tp2 - curr_price) / risk
-                    if rr >= 2.0:
+                    if rr >= 2.5:
                         signals.append(MarketSignal(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -444,7 +534,7 @@ class TechnicalEngine:
                             stop_loss=sl,
                             take_profit=tp2,
                             risk_reward=round(rr, 2),
-                            description=f"Bullish Mean Reversion (Oversold BB Trap + RSI {curr_rsi:.1f})",
+                            description=f"Bullish Mean Reversion (RSI Divergence + Rejection Wick, RSI {curr_rsi:.1f})",
                             trendlines=trendlines[:1],
                             sr_zones=sr_zones,
                             fvgs=fvgs[-3:] if fvgs else [],
@@ -453,19 +543,20 @@ class TechnicalEngine:
                             tp2=round(tp2, 4)
                         ))
 
-            # Bearish Mean Reversion Trap:
-            is_overbought = curr_rsi >= 60 or (len(rsi_series) >= 2 and rsi_series[-2] >= 60)
+            # Bearish Mean Reversion Trap (mirror conditions)
+            is_overbought = max(curr_rsi, prev_rsi) >= 65.0
             has_upper_touch = float(confirmed_bar["high"]) >= curr_upper * 0.998 or float(latest_bar["high"]) >= curr_upper * 0.998
             has_bear_rejection = curr_price < float(confirmed_bar["high"])
+            strong_bear_rejection = self.has_strong_rejection_wick(confirmed_bar, "BEARISH")
 
-            if is_overbought and has_upper_touch and has_bear_rejection:
+            if is_overbought and has_upper_touch and has_bear_rejection and strong_bear_rejection and divergence == "BEARISH":
                 sl = max(float(confirmed_bar["high"]), float(latest_bar["high"])) + curr_atr * 0.25
                 risk = sl - curr_price
                 if risk > 0 and curr_lower < curr_price:
                     tp1 = curr_mid
                     tp2 = curr_lower
                     rr = (curr_price - tp2) / risk
-                    if rr >= 2.0:
+                    if rr >= 2.5:
                         signals.append(MarketSignal(
                             symbol=symbol,
                             timeframe=timeframe,
@@ -475,7 +566,7 @@ class TechnicalEngine:
                             stop_loss=sl,
                             take_profit=tp2,
                             risk_reward=round(rr, 2),
-                            description=f"Bearish Mean Reversion (Overbought BB Trap + RSI {curr_rsi:.1f})",
+                            description=f"Bearish Mean Reversion (RSI Divergence + Rejection Wick, RSI {curr_rsi:.1f})",
                             trendlines=trendlines[:1],
                             sr_zones=sr_zones,
                             fvgs=fvgs[-3:] if fvgs else [],

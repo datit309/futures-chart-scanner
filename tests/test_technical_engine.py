@@ -347,8 +347,11 @@ def test_quant_indicators_and_regime_classification():
 
 
 def test_regime_adaptive_signals_generation():
+    """
+    Mean reversion is now hard-gated. A pure downtrend without RSI divergence
+    must NOT produce mean-reversion signals (it is trend continuation, not exhaustion).
+    """
     engine = TechnicalEngine()
-    # 1. Simulate Mean Reversion Oversold Trap in Ranging Market:
     prices = []
     for i in range(20):
         val = 100 + 3 * (1 if i % 2 == 0 else -1)
@@ -360,13 +363,142 @@ def test_regime_adaptive_signals_generation():
 
     signals = engine.analyze_market(klines, symbol="BTCUSDT", timeframe="15m")
     mr_signals = [s for s in signals if s.pattern == PatternType.MEAN_REVERSION_TRAP]
-    assert len(mr_signals) > 0
-    sig = mr_signals[0]
-    assert sig.signal_type == "LONG"
-    assert sig.regime == "RANGING"
-    assert sig.take_profit > sig.entry_price
-    assert sig.stop_loss < sig.entry_price
-    assert sig.tp1 > 0
+    assert len(mr_signals) == 0, "Pure downtrend without divergence must not trigger mean reversion"
+
+
+def test_detect_rsi_divergence_bullish_and_bearish():
+    """Divergence compares two well-separated swing extremes: price vs momentum."""
+    engine = TechnicalEngine()
+    klines = create_synthetic_klines([(100, 101, 99, 100)] * 30)
+
+    # Bullish: lower low in price, higher low in RSI
+    bull_swings = [
+        SwingPoint(index=8, price=95.0, is_high=False, timestamp=klines[8]["timestamp"]),
+        SwingPoint(index=20, price=93.0, is_high=False, timestamp=klines[20]["timestamp"]),
+    ]
+    rsi = [50.0] * 30
+    rsi[8] = 28.0
+    rsi[20] = 36.0
+    assert engine.detect_rsi_divergence(klines, bull_swings, rsi) == "BULLISH"
+
+    # Bearish: higher high in price, lower high in RSI
+    bear_swings = [
+        SwingPoint(index=8, price=105.0, is_high=True, timestamp=klines[8]["timestamp"]),
+        SwingPoint(index=20, price=107.0, is_high=True, timestamp=klines[20]["timestamp"]),
+    ]
+    rsi[8] = 72.0
+    rsi[20] = 64.0
+    assert engine.detect_rsi_divergence(klines, bear_swings, rsi) == "BEARISH"
+
+
+def test_detect_rsi_divergence_returns_none_when_momentum_agrees():
+    """Lower low in price AND lower low in RSI = plain downtrend, not divergence."""
+    engine = TechnicalEngine()
+    klines = create_synthetic_klines([(100, 101, 99, 100)] * 30)
+    swings = [
+        SwingPoint(index=8, price=95.0, is_high=False, timestamp=klines[8]["timestamp"]),
+        SwingPoint(index=20, price=93.0, is_high=False, timestamp=klines[20]["timestamp"]),
+    ]
+    rsi = [50.0] * 30
+    rsi[8] = 35.0
+    rsi[20] = 28.0  # RSI also made a lower low -> no divergence
+    assert engine.detect_rsi_divergence(klines, swings, rsi) is None
+
+
+def test_detect_rsi_divergence_ignores_swings_too_close_together():
+    """Two adjacent swing lows are noise, not a divergence structure."""
+    engine = TechnicalEngine()
+    klines = create_synthetic_klines([(100, 101, 99, 100)] * 30)
+    swings = [
+        SwingPoint(index=15, price=95.0, is_high=False, timestamp=klines[15]["timestamp"]),
+        SwingPoint(index=18, price=93.0, is_high=False, timestamp=klines[18]["timestamp"]),
+    ]
+    rsi = [50.0] * 30
+    rsi[15] = 28.0
+    rsi[18] = 36.0
+    assert engine.detect_rsi_divergence(klines, swings, rsi) is None
+
+
+def test_has_strong_rejection_wick():
+    """Rejection wick must be >= 1.5x body; doji never qualifies."""
+    engine = TechnicalEngine()
+    # Bullish: body 0.8, lower wick 2.2 -> ratio 2.75
+    assert engine.has_strong_rejection_wick({"open": 98.0, "close": 97.2, "high": 98.3, "low": 95.0}, "BULLISH") is True
+    # Bearish: body 0.8, upper wick 2.2
+    assert engine.has_strong_rejection_wick({"open": 97.2, "close": 98.0, "high": 100.2, "low": 97.1}, "BEARISH") is True
+    # Weak wick: body 3.0, wick 0.5 -> ratio 0.17
+    assert engine.has_strong_rejection_wick({"open": 98.5, "close": 95.5, "high": 99.0, "low": 95.0}, "BULLISH") is False
+    # Doji: body 0
+    assert engine.has_strong_rejection_wick({"open": 97.5, "close": 97.5, "high": 98.0, "low": 95.0}, "BULLISH") is False
+
+
+def test_mean_reversion_emits_signal_only_when_all_conditions_align():
+    """
+    When RSI extreme + BB touch + strong rejection + divergence + R:R>=2.5 all align,
+    exactly one LONG mean-reversion signal is produced.
+    """
+    from unittest.mock import patch
+
+    engine = TechnicalEngine()
+    # Ranging market with a rejection candle piercing the lower Bollinger Band
+    prices = []
+    for i in range(6):
+        c = 101.0 if i % 2 == 0 else 99.0
+        prices.append((c - 0.3, c + 0.8, c - 0.8, c))
+    for i in range(10):
+        prices.append((98.8 - i * 0.4, 99.3 - i * 0.4, 98.4 - i * 0.4, 98.5 - i * 0.4))
+    lo1 = 98.5 - 9 * 0.4
+    for i in range(3):
+        prices.append((lo1 + 0.2 + i * 0.5, lo1 + 0.7 + i * 0.5, lo1 - 0.4 + i * 0.5, lo1 + 0.6 + i * 0.5))
+    hi2 = lo1 + 0.6 + 2 * 0.5
+    # confirmed bar: strong lower rejection wick
+    prices.append((hi2 - 0.2, hi2 + 0.2, hi2 - 3.2, hi2 - 1.0))
+    # live bar holds above the low
+    prices.append((hi2 - 1.0, hi2 - 0.5, hi2 - 2.4, hi2 - 0.7))
+    klines = create_synthetic_klines(prices)
+    n = len(klines)
+
+    with patch.object(engine, "detect_rsi_divergence", return_value="BULLISH"), \
+         patch.object(engine, "calc_rsi", return_value=[50.0] * (n - 2) + [30.0, 31.0]), \
+         patch.object(engine, "calc_bollinger_bands", return_value=([105.0] * n, [100.0] * n, [94.0] * n)):
+        signals = engine.analyze_market(klines, symbol="TESTUSDT", timeframe="15m")
+
+    mr = [s for s in signals if s.pattern == PatternType.MEAN_REVERSION_TRAP]
+    assert len(mr) == 1
+    assert mr[0].signal_type == "LONG"
+    assert mr[0].risk_reward >= 2.5
+    assert mr[0].regime == "RANGING"
+    assert mr[0].stop_loss < mr[0].entry_price < mr[0].take_profit
+    assert "Divergence" in mr[0].description
+
+
+def test_mean_reversion_blocked_when_rejection_wick_is_weak():
+    """BB touch + oversold RSI + divergence but a weak wick must still be blocked."""
+    from unittest.mock import patch
+
+    engine = TechnicalEngine()
+    prices = []
+    for i in range(6):
+        c = 101.0 if i % 2 == 0 else 99.0
+        prices.append((c - 0.3, c + 0.8, c - 0.8, c))
+    for i in range(10):
+        prices.append((98.8 - i * 0.4, 99.3 - i * 0.4, 98.4 - i * 0.4, 98.5 - i * 0.4))
+    lo1 = 98.5 - 9 * 0.4
+    for i in range(3):
+        prices.append((lo1 + 0.2 + i * 0.5, lo1 + 0.7 + i * 0.5, lo1 - 0.4 + i * 0.5, lo1 + 0.6 + i * 0.5))
+    hi2 = lo1 + 0.6 + 2 * 0.5
+    # confirmed bar: big body, tiny wick (ratio << 1.5)
+    prices.append((hi2 - 0.2, hi2 - 2.0, hi2 - 2.2, hi2 - 0.5))
+    prices.append((hi2 - 0.5, hi2 - 0.2, hi2 - 1.0, hi2 - 0.4))
+    klines = create_synthetic_klines(prices)
+    n = len(klines)
+
+    with patch.object(engine, "detect_rsi_divergence", return_value="BULLISH"), \
+         patch.object(engine, "calc_rsi", return_value=[50.0] * (n - 2) + [30.0, 31.0]), \
+         patch.object(engine, "calc_bollinger_bands", return_value=([105.0] * n, [100.0] * n, [94.0] * n)):
+        signals = engine.analyze_market(klines, symbol="TESTUSDT", timeframe="15m")
+
+    assert not any(s.pattern == PatternType.MEAN_REVERSION_TRAP for s in signals)
 
 
 def test_unmitigated_order_blocks_and_bos_choch_shifts():
