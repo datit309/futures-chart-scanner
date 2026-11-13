@@ -35,7 +35,7 @@ Render an interactive horizontal Volume Profile on the TradingView chart from Bi
 
 ## Task 1: Fetch and cache bounded aggTrades for rolling 24h
 Wave: 1
-Status: pending
+Status: completed
 Risk: medium
 Dependencies: none
 Model: inherit
@@ -86,7 +86,7 @@ Checkpoint:
 
 ## Task 2: Calculate POC and 70% Value Area from trades
 Wave: 2
-Status: pending
+Status: completed
 Risk: medium
 Dependencies: Task 1
 Model: inherit
@@ -132,7 +132,7 @@ Checkpoint:
 
 ## Task 3: Render profile overlay, controls, status and cache-aware browser loading
 Wave: 3
-Status: pending
+Status: completed
 Risk: medium
 Dependencies: Task 1, Task 2
 Model: inherit
@@ -183,7 +183,7 @@ Checkpoint:
 
 ## Task 4: End-to-end QA, docs, verification and review evidence
 Wave: 4
-Status: pending
+Status: completed
 Risk: low
 Dependencies: Task 3
 Model: inherit
@@ -253,5 +253,22 @@ Checkpoint:
 - Execution gate: user approval for the finally reviewed plan required before `/execute`.
 - Choices: `yes`, `modify`, `reject`.
 
+## Execution Evidence
+- Task 1 RED: 12 focused tests failed first on missing `get_aggregate_trades`; GREEN then passed. Added explicit `Retry-After` and semaphore-deadline regressions (each RED before implementation, both GREEN).
+- Task 2 RED: missing `buildVolumeProfile`; GREEN fixture/edge tests passed.
+- Task 3 RED: missing `createVolumeProfileController`; GREEN abort/cache/state/render tests pass, plus cache bounded at 8 symbols and mobile chart-width cap tested.
+- Browser: after user-authorized server restart, `GET /api/volume-profile?symbol=BTCUSDT` returned HTTP 200 with 20,000 trades, `page_cap`, observed coverage ~39–57 minutes of 24h. UI rendered POC/VAH/VAL and shows `MỘT PHẦN ... PHỦ n PHÚT`; toggle off clears canvas; network offline displays `LỖI TẢI`; invalid symbol returns HTTP 400. No desktop horizontal overflow. Response approx 1.70 MB, 2.7–3.8 seconds.
+- Not verified: true 390x844 browser viewport (available MCP Chrome ignored window-size args; unit renderer width cap test passes); axe-core audit unavailable in active browser tool. Live BTC dataset is partial, so full/empty visual states have unit coverage but not live endpoint fixtures.
+- Final verification: `PYTHONPATH=. ./venv/bin/pytest tests/ -q` → 104 passed; `node --test tests/chart_stream.test.js` → 46 passed; `python3 -m py_compile ...` → pass; `git diff --check` → pass. Existing warnings: aiohttp AppKey and pytest-asyncio config; one Unclosed client session warning.
+- Graph: updated index is ready; UI changes remain in existing chart_stream/static boundary; no vendor library, signal engine, risk or DB schema changes.
+- Independent reviewer attempts failed before returning a report; final manual diff review remains required.
+- Separate preexisting Serena diagnostic: `server.py::run_scan` may use `sig_dict` unbound when `enriched` is false; existing unrelated scanner issue, not modified here.
+
+## Final Review
+- Independent reviewer verdict: PASS, no blockers. Minor notes: add a route-level page-cap assertion (added and passing); API cache key uses symbol only (equivalent while 24h window is fixed); pre-existing `run_scan` `sig_dict` diagnostic remains outside this scope.
+- Manual QA: live 20k BTC response took ~1.70MB and 2.7–3.8s, covers only ~39–57 minutes, and is clearly labeled partial with `PHỦ n PHÚT`. Invalid-symbol 400, network-offline error state, toggle clear/reload and desktop no-overflow verified. Mobile 390x844 and axe audit unavailable in browser tool; unit 390px width-cap test passes.
+- Final verification: 105 Python tests, 46 JavaScript tests, py_compile and `git diff --check` pass.
+- Final risk: the 20k cap may cover less than 24h on high-activity symbols, causing partial profile and large response. User-approved cap unchanged; response/trade count is bounded and partial label exposes actual observed span.
+
 ## Status
-Plan revisions complete; final independent review pending. Do not implement until final review and user execution approval.
+All four implementation tasks complete. Review PASS. Commit is scoped to feature files; `.supergraph-env` excluded. Awaiting user-directed push/merge only. Do not implement until final review and user execution approval.

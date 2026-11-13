@@ -112,3 +112,191 @@ async def test_get_open_interest_and_funding_rate():
         fr = await client.get_funding_rate("BTCUSDT")
         assert fr == 0.0001
 
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_page_one_uses_time_boundary():
+    client = BinanceClient()
+    start_ms, end_ms = 1000, 9000
+    page = [{"a": 10, "p": "100.5", "q": "2.0", "T": 1000, "m": False}]
+    with patch.object(client, "_fetch_json", return_value=page) as fetch:
+        result = await client.get_aggregate_trades("BTCUSDT", start_ms, end_ms)
+    assert fetch.call_count == 1
+    assert fetch.call_args.args[0].endswith("/fapi/v1/aggTrades")
+    assert fetch.call_args.kwargs["params"] == {"symbol": "BTCUSDT", "startTime": start_ms, "endTime": end_ms, "limit": 1000}
+    assert result["trades"] == [{"id": 10, "price": 100.5, "quantity": 2.0, "timestamp": 1000}]
+    assert result["start_covered"] is True
+    assert result["partial"] is False
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_start_uncovered_marks_partial():
+    client = BinanceClient()
+    start_ms, end_ms = 1000, 9000
+    page = [{"a": 10, "p": "100.5", "q": "2.0", "T": 2000, "m": False}]
+    with patch.object(client, "_fetch_json", return_value=page):
+        result = await client.get_aggregate_trades("BTCUSDT", start_ms, end_ms, start_boundary_tolerance_ms=300)
+    assert result["partial"] is True
+    assert result["partial_reason"] == "start_uncovered"
+    assert result["start_covered"] is False
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_followup_uses_from_id_only_and_dedupes_boundary():
+    client = BinanceClient()
+    start_ms, end_ms = 1000, 3000
+    pages = [
+        [{"a": 10, "p": "100", "q": "1", "T": 1000}, {"a": 11, "p": "101", "q": "2", "T": 1500}, {"a": 12, "p": "102", "q": "3", "T": 2000}],
+        [{"a": 12, "p": "102", "q": "3", "T": 2000}, {"a": 13, "p": "103", "q": "4", "T": 2200}, {"a": 14, "p": "104", "q": "5", "T": 2500}],
+        [],
+    ]
+    with patch.object(client, "_fetch_json", side_effect=pages) as fetch:
+        result = await client.get_aggregate_trades("BTCUSDT", start_ms, end_ms, page_size=3, min_request_interval=0)
+    assert fetch.call_count == 3
+    assert fetch.call_args_list[0].kwargs["params"] == {"symbol": "BTCUSDT", "startTime": start_ms, "endTime": end_ms, "limit": 3}
+    assert fetch.call_args_list[1].kwargs["params"] == {"symbol": "BTCUSDT", "fromId": 13, "limit": 3}
+    assert fetch.call_args_list[2].kwargs["params"] == {"symbol": "BTCUSDT", "fromId": 15, "limit": 3}
+    assert [t["id"] for t in result["trades"]] == [10, 11, 12, 13, 14]
+    assert result["caught_up"] is True
+    assert result["partial"] is False
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_short_page_after_start_is_caught_up():
+    client = BinanceClient()
+    page = [{"a": 2, "p": "101", "q": "1", "T": 2000}]
+    with patch.object(client, "_fetch_json", return_value=page):
+        result = await client.get_aggregate_trades("BTCUSDT", 2000, 9000)
+    assert result["start_covered"] is True
+    assert result["caught_up"] is True
+    assert result["partial"] is False
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_empty_start_window_is_complete_empty():
+    client = BinanceClient()
+    with patch.object(client, "_fetch_json", return_value=[]):
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000)
+    assert result["trades"] == []
+    assert result["start_covered"] is False
+    assert result["caught_up"] is True
+    assert result["partial"] is True
+    assert result["partial_reason"] == "start_uncovered"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_page_cap_sets_partial_with_coverage():
+    client = BinanceClient()
+    pages = [
+        [{"a": 10, "p": "100", "q": "1", "T": 1000}, {"a": 11, "p": "100", "q": "1", "T": 1001}, {"a": 12, "p": "100", "q": "1", "T": 1002}],
+        [{"a": 13, "p": "100", "q": "1", "T": 1003}, {"a": 14, "p": "100", "q": "1", "T": 1004}, {"a": 15, "p": "100", "q": "1", "T": 1005}],
+        [{"a": 16, "p": "100", "q": "1", "T": 1006}, {"a": 17, "p": "100", "q": "1", "T": 1007}, {"a": 18, "p": "100", "q": "1", "T": 1008}],
+    ]
+    with patch.object(client, "_fetch_json", side_effect=pages) as fetch:
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000, page_cap=3, page_size=3)
+    assert fetch.call_count == 3
+    assert result["pages"] == 3
+    assert result["partial"] is True
+    assert result["partial_reason"] == "page_cap"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_repeated_or_backwards_cursor_sets_no_progress():
+    client = BinanceClient()
+    first = [{"a": 10, "p": "100", "q": "1", "T": 1000}, {"a": 11, "p": "101", "q": "1", "T": 1100}]
+    repeated = [{"a": 10, "p": "100", "q": "1", "T": 1000}, {"a": 11, "p": "101", "q": "1", "T": 1100}]
+    with patch.object(client, "_fetch_json", side_effect=[first, repeated]):
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000, page_size=2, min_request_interval=0)
+    assert result["partial"] is True
+    assert result["partial_reason"] == "no_progress"
+    assert len(result["trades"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_malformed_rows_are_dropped_and_mark_partial():
+    client = BinanceClient()
+    page = [
+        {"a": 10, "p": "100", "q": "1", "T": 1000},
+        {"a": 11, "p": "NaN", "q": "2", "T": 1200},
+    ]
+    with patch.object(client, "_fetch_json", return_value=page):
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000)
+    assert len(result["trades"]) == 1
+    assert result["partial"] is True
+    assert result["partial_reason"] == "malformed_rows"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_deadline_marks_timeout_partial():
+    client = BinanceClient()
+    page = [
+        {"a": 10, "p": "100", "q": "1", "T": 1000},
+        {"a": 11, "p": "100", "q": "1", "T": 1100},
+    ]
+    with patch.object(client, "_fetch_json", side_effect=[page, asyncio.TimeoutError()]):
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000, page_size=2, min_request_interval=0)
+    assert result["partial"] is True
+    assert result["partial_reason"] == "timeout"
+    assert len(result["trades"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_retries_429_twice_then_returns_partial():
+    import aiohttp
+    client = BinanceClient()
+    response = aiohttp.ClientResponseError(request_info=None, history=(), status=429, message="rate limited")
+    with patch.object(client, "_fetch_json", side_effect=[response, response, response]) as fetch:
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000, retry_base_seconds=0, min_request_interval=0)
+    assert fetch.call_count == 3
+    assert result["partial"] is True
+    assert result["partial_reason"] == "upstream_error"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_honors_retry_after_with_two_second_cap():
+    import aiohttp
+    from unittest.mock import AsyncMock
+    client = BinanceClient()
+    first_error = aiohttp.ClientResponseError(request_info=None, history=(), status=429, message="rate limited", headers={"Retry-After": "9"})
+    success = [{"a": 10, "p": "100", "q": "1", "T": 1000}]
+    with patch.object(client, "_fetch_json", side_effect=[first_error, success]) as fetch, patch("binance_client.asyncio.sleep", new=AsyncMock()) as sleep:
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000, min_request_interval=0)
+    assert fetch.call_count == 2
+    assert sleep.await_args.args[0] == 2.0, "Retry-After must be honored but clamped to 2 seconds"
+    assert result["caught_up"] is True
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_deadline_includes_semaphore_wait():
+    client = BinanceClient()
+    page = [{"a": 10, "p": "100", "q": "1", "T": 1000}]
+    await client._aggtrades_semaphore.acquire()
+    with patch.object(client, "_fetch_json", return_value=page) as fetch:
+        task = asyncio.create_task(client.get_aggregate_trades("BTCUSDT", 1000, 9000, timeout_seconds=0.01))
+        await asyncio.sleep(0.06)  # implementation enforces a 50ms minimum total deadline
+        client._aggtrades_semaphore.release()
+        result = await task
+    fetch.assert_not_called()
+    assert result["partial"] is True
+    assert result["partial_reason"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_aggregate_trades_400_is_not_retried():
+    import aiohttp
+    client = BinanceClient()
+    response = aiohttp.ClientResponseError(request_info=None, history=(), status=400, message="bad request")
+    with patch.object(client, "_fetch_json", side_effect=response) as fetch:
+        result = await client.get_aggregate_trades("BTCUSDT", 1000, 9000, min_request_interval=0)
+    assert fetch.call_count == 1
+    assert result["partial"] is True
+    assert result["partial_reason"] == "upstream_error"
+
+
+@pytest.mark.asyncio
+async def test_get_aggregate_trades_rejects_invalid_symbol_without_network():
+    client = BinanceClient()
+    with patch.object(client, "_fetch_json") as fetch:
+        with pytest.raises(ValueError):
+            await client.get_aggregate_trades("https://evil.example/", 1000, 9000)
+    fetch.assert_not_called()
+

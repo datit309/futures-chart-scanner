@@ -13,6 +13,7 @@ async def test_server_routes():
     routes = [r.resource.canonical for r in app.router.routes() if getattr(r, "resource", None)]
     assert "/api/status" in routes
     assert "/api/chart" in routes
+    assert "/api/volume-profile" in routes
     assert "/api/symbols" in routes
     assert "/ws/market" in routes
 
@@ -711,3 +712,109 @@ async def test_run_scan_pauses_altcoins_on_btc_circuit_breaker():
         assert len(eth_found) == 0
 
 
+
+
+@pytest.mark.asyncio
+async def test_volume_profile_marks_page_cap_partial(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    payload = {
+        "symbol": "BTCUSDT", "window_start_ms": 1000, "window_end_ms": 2000,
+        "partial": True, "partial_reason": "page_cap", "pages": 20, "trade_count": 20000,
+        "oldest_trade_time": 1300, "newest_trade_time": 1900,
+        "start_covered": True, "caught_up": False,
+        "trades": [{"id": 1, "price": 100.0, "quantity": 2.0, "timestamp": 1300}],
+    }
+    state.client.get_aggregate_trades = AsyncMock(return_value=payload)
+    client = await aiohttp_client(app)
+    res = await client.get("/api/volume-profile?symbol=BTCUSDT")
+    assert res.status == 200
+    body = await res.json()
+    assert body["partial"] is True
+    assert body["partial_reason"] == "page_cap"
+    assert body["trade_count"] == 20000
+    assert body["trades"] == payload["trades"]
+    assert "poc" not in body and "bins" not in body
+
+
+@pytest.mark.asyncio
+async def test_volume_profile_invalid_symbol_returns_400(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.client.get_aggregate_trades = AsyncMock()
+    client = await aiohttp_client(app)
+    res = await client.get("/api/volume-profile?symbol=https://evil.example")
+    assert res.status == 400
+    state.client.get_aggregate_trades.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_volume_profile_cache_ttl_and_inflight_coalescing(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    payload = {
+        "symbol": "BTCUSDT", "window_start_ms": 1000, "window_end_ms": 2000,
+        "partial": False, "partial_reason": None, "pages": 1, "trade_count": 1,
+        "oldest_trade_time": 1500, "newest_trade_time": 1500,
+        "start_covered": True, "caught_up": True,
+        "trades": [{"id": 1, "price": 100.0, "quantity": 2.0, "timestamp": 1500}],
+    }
+    gate = asyncio.Event()
+    calls = 0
+    async def fake_fetch(symbol, start_ms, end_ms, page_cap=20):
+        nonlocal calls
+        calls += 1
+        await gate.wait()
+        return dict(payload)
+    state.client.get_aggregate_trades = fake_fetch
+    client = await aiohttp_client(app)
+    r1_task = asyncio.create_task(client.get("/api/volume-profile?symbol=BTCUSDT"))
+    # Wait until the first request has installed its in-flight fetch.
+    for _ in range(50):
+        if calls == 1:
+            break
+        await asyncio.sleep(0.001)
+    assert calls == 1
+    r2_task = asyncio.create_task(client.get("/api/volume-profile?symbol=BTCUSDT"))
+    await asyncio.sleep(0.01)
+    gate.set()
+    r1, r2 = await asyncio.gather(r1_task, r2_task)
+    assert r1.status == r2.status == 200
+    assert calls == 1, "concurrent same-symbol requests are coalesced"
+
+    # A third immediate request uses 60s cache.
+    r3 = await client.get("/api/volume-profile?symbol=BTCUSDT")
+    assert r3.status == 200
+    assert calls == 1
+    d = await r3.json()
+    assert d["trades"][0]["quantity"] == 2.0
+    assert "bins" not in d and "poc" not in d, "API returns raw trades only; browser owns POC/VA"
+
+
+@pytest.mark.asyncio
+async def test_volume_profile_upstream_failure_does_not_block_chart_or_scan(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+    state.client.get_aggregate_trades = AsyncMock(side_effect=RuntimeError("aggTrades unavailable"))
+    state.client.get_klines = AsyncMock(return_value=[
+        {"timestamp": 1700000000000 + i * 900000, "open": 100, "high": 101, "low": 99, "close": 100, "volume": 10, "close_time": 1700000900000 + i * 900000}
+        for i in range(30)
+    ])
+    client = await aiohttp_client(app)
+
+    profile_res = await client.get("/api/volume-profile?symbol=BTCUSDT")
+    assert profile_res.status == 200
+    profile = await profile_res.json()
+    assert profile["partial"] is True
+    assert profile["partial_reason"] == "upstream_error"
+
+    chart_res = await client.get("/api/chart?symbol=BTCUSDT&timeframe=15m&limit=30")
+    assert chart_res.status == 200, "aggTrades outage must not break the regular chart API"
+
+    # Run scan with a no-signal engine; aggTrades must not be called by run_scan.
+    state.top_symbols = ["BTCUSDT"]
+    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
+    from unittest.mock import patch
+    with patch.object(state.technical_engine, "analyze_market", return_value=[]):
+        await state.run_scan()
+    assert state.client.get_aggregate_trades.await_count == 1, "scan does not fetch aggTrades"

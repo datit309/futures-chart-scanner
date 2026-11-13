@@ -87,6 +87,8 @@ class WebServerState:
         self.last_scan_time: float = 0.0
         self.signal_tracker = SignalTracker(db_path=os.getenv("SIGNALS_DB_PATH", "signals.db"))
         self.news_service = NewsService()  # advisory headlines only; never touched by run_scan
+        self._volume_profile_cache: Dict[str, Dict[str, Any]] = {}
+        self._volume_profile_inflight: Dict[str, asyncio.Task] = {}
         try:
             open_signals = self.signal_tracker.list_signals(status_filter="OPEN", limit=100)
             self.active_signals: Dict[str, Dict[str, Any]] = {s["symbol"]: s for s in open_signals}
@@ -279,6 +281,74 @@ async def handle_api_news(request: web.Request) -> web.Response:
         symbol=symbol,
         active_symbols=tuple(state.active_signals.keys()),
     )
+    return web.json_response(payload)
+
+
+async def _fetch_volume_profile(state: WebServerState, symbol: str, window_end_ms: int) -> Dict[str, Any]:
+    window_ms = 24 * 60 * 60 * 1000
+    start_ms = window_end_ms - window_ms
+    result = await state.client.get_aggregate_trades(symbol, start_ms, window_end_ms, page_cap=20)
+    result["fetched_at"] = time.time()
+    result["window_seconds"] = 86400
+    return result
+
+
+async def handle_api_volume_profile(request: web.Request) -> web.Response:
+    """Return raw, coverage-labelled aggTrades for a rolling 24h Volume Profile.
+
+    This route is on-demand/cache-backed; it is not called by run_scan, kline
+    polling, or the market stream.
+    """
+    state: WebServerState = request.app["state"]
+    symbol = request.query.get("symbol", "").upper()
+    if not MARKET_SYMBOL_RE.fullmatch(symbol):
+        return web.json_response({"error": "invalid_symbol"}, status=400)
+
+    now_ms = int(time.time() * 1000)
+    cache_key = symbol
+    cached = state._volume_profile_cache.get(cache_key)
+    if cached and time.time() - cached.get("fetched_at", 0.0) < 60:
+        return web.json_response(cached)
+
+    task = state._volume_profile_inflight.get(cache_key)
+    if task is None or task.done():
+        task = asyncio.create_task(_fetch_volume_profile(state, symbol, now_ms))
+        state._volume_profile_inflight[cache_key] = task
+    try:
+        payload = await task
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        print(f"[VolumeProfile] {symbol} aggTrades fetch failed: {exc}")
+        payload = {
+            "symbol": symbol,
+            "window_start_ms": now_ms - 86400000,
+            "window_end_ms": now_ms,
+            "window_seconds": 86400,
+            "fetched_at": time.time(),
+            "partial": True,
+            "partial_reason": "upstream_error",
+            "pages": 0,
+            "trade_count": 0,
+            "oldest_trade_time": None,
+            "newest_trade_time": None,
+            "start_covered": False,
+            "caught_up": False,
+            "trades": [],
+        }
+    finally:
+        if state._volume_profile_inflight.get(cache_key) is task and task.done():
+            state._volume_profile_inflight.pop(cache_key, None)
+
+    # Cache valid data/coverage states, including cap/start-uncovered partials,
+    # so repeated UI refreshes do not multiply upstream request weight. Do not
+    # cache transient upstream failures or timeouts.
+    if payload.get("partial_reason") not in ("upstream_error", "timeout", "no_progress"):
+        state._volume_profile_cache[cache_key] = payload
+        # Bounded cache: retain at most 8 symbol profiles.
+        if len(state._volume_profile_cache) > 8:
+            oldest_key = min(state._volume_profile_cache, key=lambda k: state._volume_profile_cache[k].get("fetched_at", 0))
+            state._volume_profile_cache.pop(oldest_key, None)
     return web.json_response(payload)
 
 async def handle_api_signal_chart(request: web.Request) -> web.Response:
@@ -771,6 +841,7 @@ async def create_app(config: Optional[ScannerConfig] = None) -> web.Application:
     app.router.add_get("/api/chart", handle_api_chart)
     app.router.add_get("/api/signals", handle_api_signals)
     app.router.add_get("/api/news", handle_api_news)
+    app.router.add_get("/api/volume-profile", handle_api_volume_profile)
     app.router.add_get("/api/signals/{id}/chart", handle_api_signal_chart)
     app.router.add_post("/api/scan", handle_api_scan)
     app.router.add_get("/ws/stream", handle_ws)

@@ -510,7 +510,236 @@ export function formatSignalPlainExplanation(signal) {
   return isLong ? '🟢 Kèo Mua (LONG) theo cấu trúc thị trường' : '🔴 Kèo Bán (SHORT) theo cấu trúc thị trường';
 }
 
+export function buildVolumeProfile(trades, options = {}) {
+  if (!Array.isArray(trades) || trades.length === 0) return null;
+  const binCount = Math.max(1, Math.floor(Number(options.binCount) || 128));
+  const valueAreaPercent = Math.min(1, Math.max(0, Number(options.valueAreaPercent) || 0.70));
+  const valid = [];
+  for (const trade of trades) {
+    const price = Number(trade?.price);
+    const quantity = Number(trade?.quantity);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quantity) || quantity < 0) continue;
+    valid.push({ price, quantity });
+  }
+  if (!valid.length) return null;
+
+  const minPrice = Math.min(...valid.map(t => t.price));
+  const maxPrice = Math.max(...valid.map(t => t.price));
+  const totalQuantity = valid.reduce((sum, t) => sum + t.quantity, 0);
+  if (maxPrice === minPrice) {
+    const quantity = totalQuantity;
+    return {
+      bins: [{ priceLow: minPrice, priceHigh: maxPrice, price: minPrice, quantity }],
+      poc: { price: minPrice, quantity },
+      vah: minPrice,
+      val: minPrice,
+      totalQuantity,
+      tradeCount: valid.length,
+    };
+  }
+
+  const step = (maxPrice - minPrice) / binCount;
+  const bins = Array.from({ length: binCount }, (_, i) => {
+    const priceLow = minPrice + i * step;
+    const priceHigh = i === binCount - 1 ? maxPrice : minPrice + (i + 1) * step;
+    return { priceLow, priceHigh, price: (priceLow + priceHigh) / 2, quantity: 0 };
+  });
+  for (const trade of valid) {
+    const index = Math.min(binCount - 1, Math.floor((trade.price - minPrice) / step));
+    bins[index].quantity += trade.quantity;
+  }
+
+  // Stable lower-price tie-break for POC.
+  let pocIndex = 0;
+  for (let i = 1; i < bins.length; i++) {
+    if (bins[i].quantity > bins[pocIndex].quantity) pocIndex = i;
+  }
+
+  const target = totalQuantity * valueAreaPercent;
+  let includedQuantity = bins[pocIndex].quantity;
+  let lowIndex = pocIndex;
+  let highIndex = pocIndex;
+  while (includedQuantity < target && (lowIndex > 0 || highIndex < bins.length - 1)) {
+    const leftQuantity = lowIndex > 0 ? bins[lowIndex - 1].quantity : -1;
+    const rightQuantity = highIndex < bins.length - 1 ? bins[highIndex + 1].quantity : -1;
+    if (leftQuantity >= rightQuantity && lowIndex > 0) {
+      lowIndex--;
+      includedQuantity += bins[lowIndex].quantity;
+    } else if (highIndex < bins.length - 1) {
+      highIndex++;
+      includedQuantity += bins[highIndex].quantity;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    bins,
+    poc: { price: bins[pocIndex].price, quantity: bins[pocIndex].quantity, index: pocIndex },
+    vah: bins[highIndex].priceHigh,
+    val: bins[lowIndex].priceLow,
+    totalQuantity,
+    tradeCount: valid.length,
+  };
+}
+
 // ---------------------------------------------------------------------------
+export function createVolumeProfileController({ fetchImpl = (...args) => fetch(...args), onState = () => {}, now = () => Date.now(), ttlMs = 60000 } = {}) {
+  const cache = new Map();
+  let activeController = null;
+  let state = { status: 'idle', symbol: null, partial: false, partialReason: null, tradeCount: 0, fetchedAt: 0, trades: [] };
+  let requestGeneration = 0;
+
+  const publish = next => {
+    state = { ...state, ...next };
+    onState({ ...state, trades: state.trades });
+  };
+
+  async function load(symbol) {
+    const normalized = String(symbol || '').toUpperCase();
+    if (!/^[A-Z0-9]{2,30}USDT$/.test(normalized)) {
+      publish({ status: 'error', symbol: normalized, partial: true, partialReason: 'invalid_symbol', tradeCount: 0, trades: [] });
+      return state;
+    }
+    const generation = ++requestGeneration;
+    if (activeController) activeController.abort();
+    activeController = null;
+    const cached = cache.get(normalized);
+    if (cached && now() - cached.fetchedAt < ttlMs) {
+      publish({ ...cached, status: cached.partial ? 'partial' : (cached.tradeCount ? 'ready' : 'empty') });
+      return state;
+    }
+    activeController = new AbortController();
+    const requestController = activeController;
+    publish({ status: 'loading', symbol: normalized, partial: false, partialReason: null });
+    try {
+      const response = await fetchImpl(`/api/volume-profile?symbol=${encodeURIComponent(normalized)}`, { signal: requestController.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      if (generation !== requestGeneration || requestController.signal.aborted) return state;
+      if (payload.symbol !== normalized || !Array.isArray(payload.trades)) throw new Error('invalid profile response');
+      const fetchedAt = now();
+      const partial = Boolean(payload.partial);
+      const next = {
+        status: partial ? 'partial' : (Number(payload.trade_count || payload.trades.length) ? 'ready' : 'empty'),
+        symbol: normalized,
+        partial,
+        partialReason: payload.partial_reason || null,
+        tradeCount: Number(payload.trade_count || payload.trades.length),
+        pages: Number(payload.pages || 0),
+        fetchedAt,
+        startCovered: Boolean(payload.start_covered),
+        caughtUp: Boolean(payload.caught_up),
+        trades: payload.trades,
+      };
+      cache.set(normalized, next);
+      if (cache.size > 8) {
+        const oldestSymbol = cache.keys().next().value;
+        if (oldestSymbol !== normalized) cache.delete(oldestSymbol);
+      }
+      publish(next);
+    } catch (error) {
+      if (error?.name === 'AbortError' || generation !== requestGeneration) return state;
+      publish({ status: 'error', symbol: normalized, partial: true, partialReason: 'upstream_error', tradeCount: 0, trades: [] });
+    } finally {
+      if (activeController === requestController) activeController = null;
+    }
+    return state;
+  }
+
+  function clear() {
+    requestGeneration++;
+    activeController?.abort();
+    activeController = null;
+    publish({ status: 'idle', symbol: null, partial: false, partialReason: null, tradeCount: 0, trades: [] });
+  }
+
+  return { load, clear, getState: () => ({ ...state, trades: state.trades }), destroy: clear };
+}
+
+export function renderVolumeProfile({ canvas, label, state, profile, enabled = true, width = 0, height = 0, devicePixelRatio = globalThis.devicePixelRatio || 1, coordinate, plotOffsetX = 40, plotOffsetY = 42, priceScaleWidth = 68 } = {}) {
+  if (!canvas || !label) return { drawn: false, state: 'unavailable' };
+  if (!(width > 0 && height > 0)) return { drawn: false, state: 'unavailable' };
+  const ctx = canvas.getContext('2d');
+  if (canvas.width !== Math.round(width * devicePixelRatio) || canvas.height !== Math.round(height * devicePixelRatio)) {
+    canvas.width = Math.round(width * devicePixelRatio);
+    canvas.height = Math.round(height * devicePixelRatio);
+  }
+  ctx?.setTransform?.(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx?.clearRect?.(0, 0, width, height);
+  canvas.style.display = enabled ? 'block' : 'none';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  label.textContent = '';
+  if (!enabled) return { drawn: false, state: 'disabled' };
+
+  const current = state || { status: 'idle' };
+  const partialCoverage = Array.isArray(current.trades) && current.trades.length > 1
+    ? Math.max(0, Math.round((Math.max(...current.trades.map(t => Number(t.timestamp) || 0)) - Math.min(...current.trades.map(t => Number(t.timestamp) || 0))) / 60000))
+    : 0;
+  const partialCoverageText = partialCoverage > 0 ? ` · PHỦ ${partialCoverage} PHÚT` : '';
+  const partialLabel = `VOLUME PROFILE · MỘT PHẦN · ${Number(current.tradeCount || 0).toLocaleString()} trades · ${current.partialReason || 'coverage'}${partialCoverageText}`;
+  if (current.status === 'loading') label.textContent = 'VOLUME PROFILE · AGGTRADES · 24H · TẢI…';
+  else if (current.status === 'error') label.textContent = 'VOLUME PROFILE · LỖI TẢI';
+  else if (current.status === 'empty' || (current.status === 'ready' && !current.tradeCount)) label.textContent = 'VOLUME PROFILE · CHƯA CÓ GIAO DỊCH';
+  else if (current.status === 'partial') label.textContent = partialLabel;
+  else if (!profile) label.textContent = current.status === 'idle' ? '' : 'VOLUME PROFILE · CHƯA CÓ DỮ LIỆU';
+  if (!['ready', 'partial'].includes(current.status) || !profile) return { drawn: false, state: current.status };
+
+  if (typeof coordinate !== 'function') {
+    label.textContent = 'VOLUME PROFILE · KHÔNG KHẢ DỤNG Ở THANG GIÁ NÀY';
+    return { drawn: false, state: 'unavailable' };
+  }
+  const plotWidth = Math.max(1, width - plotOffsetX - priceScaleWidth);
+  const paneWidth = Math.max(1, Math.min(plotWidth * 0.24, width <= 640 ? 112 : 180));
+  const maxQuantity = Math.max(0, ...profile.bins.map(bin => Number(bin.quantity) || 0));
+  if (!ctx || maxQuantity <= 0) return { drawn: false, state: 'empty' };
+
+  const xRight = width - priceScaleWidth - 4;
+  const xLeft = xRight - paneWidth;
+  for (const bin of profile.bins) {
+    const rawTop = coordinate(bin.priceHigh);
+    const rawBottom = coordinate(bin.priceLow);
+    const yTop = plotOffsetY + rawTop;
+    const yBottom = plotOffsetY + rawBottom;
+    if (!Number.isFinite(rawTop) || !Number.isFinite(rawBottom)) {
+      label.textContent = 'VOLUME PROFILE · KHÔNG KHẢ DỤNG Ở THANG GIÁ NÀY';
+      ctx.clearRect(0, 0, width, height);
+      return { drawn: false, state: 'unavailable' };
+    }
+    const ratio = Math.max(0, Number(bin.quantity) || 0) / maxQuantity;
+    const barWidth = Math.max(1, paneWidth * ratio);
+    const inValueArea = bin.priceHigh >= profile.val && bin.priceLow <= profile.vah;
+    ctx.fillStyle = inValueArea ? 'rgba(101,207,255,0.48)' : 'rgba(101,207,255,0.20)';
+    ctx.fillRect(xRight - barWidth, Math.min(yTop, yBottom), barWidth, Math.max(1, Math.abs(yBottom - yTop)));
+  }
+
+  const drawLevel = (price, color, title) => {
+    const rawY = coordinate(price);
+    if (!Number.isFinite(rawY)) return false;
+    const y = plotOffsetY + rawY;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = title === 'POC' ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.moveTo(xLeft - 3, y);
+    ctx.lineTo(xRight, y);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '9px monospace';
+    ctx.fillText(title, Math.max(0, xLeft - 32), Math.max(10, y - 3));
+    return true;
+  };
+  if (!drawLevel(profile.poc.price, '#f5b84b', 'POC') || !drawLevel(profile.vah, '#00d69a', 'VAH') || !drawLevel(profile.val, '#ff5e6e', 'VAL')) {
+    ctx.clearRect(0, 0, width, height);
+    label.textContent = 'VOLUME PROFILE · KHÔNG KHẢ DỤNG Ở THANG GIÁ NÀY';
+    return { drawn: false, state: 'unavailable' };
+  }
+  label.textContent = current.status === 'partial'
+    ? `${partialLabel} · BASE QTY ${Number(profile.totalQuantity || 0).toPrecision(4)}`
+    : `VOLUME PROFILE · AGGTRADES · 24H · ĐẦY ĐỦ · BASE QTY ${Number(profile.totalQuantity || 0).toPrecision(4)}`;
+  return { drawn: true, state: 'ready', paneWidth };
+}
+
 // Volume surge detection — makes the engine's hidden volume filter visible.
 // A bar is a "surge" when its volume >= threshold * SMA(lookback) of prior bars.
 // ---------------------------------------------------------------------------
@@ -843,4 +1072,4 @@ export function createNewsController({ container, getSymbol, fetchFn, now = () =
   return { refresh, start, stop };
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio,buildVolumeProfile,createVolumeProfileController,renderVolumeProfile};

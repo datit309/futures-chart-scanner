@@ -17,7 +17,7 @@
 .workspace{grid-template-columns:minmax(0,1.9fr) minmax(290px,1fr);align-items:start;gap:16px}
 .chart-panel,.side,.side>.panel{min-width:0}
 .side{gap:12px}
-.chart-wrap{height:clamp(390px,54vw,620px)}
+.chart-wrap{height:clamp(390px,54vw,620px);position:relative}.volume-profile-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:4;pointer-events:none}.volume-profile-label{position:absolute;top:48px;right:76px;z-index:5;max-width:min(40%,320px);padding:4px 7px;border:1px solid #31404c;background:rgba(9,13,18,.88);color:#9db0bd;font:9px var(--mono);letter-spacing:.04em;pointer-events:none}.volume-profile-toggle{display:inline-flex;align-items:center;gap:5px;color:#9db0bd;font:10px var(--mono);white-space:nowrap}.volume-profile-toggle input{accent-color:var(--cyan)}
 .signal-list{max-height:clamp(280px,48vw,560px)}
 .watch-list{max-height:420px;overflow:auto}
 .topbar{gap:16px}
@@ -345,8 +345,10 @@
     <div class="symbol-dropdown-list" id="symbolDropdownList" role="listbox"></div>
   </div>
   <select id="symbolSelect" class="select" aria-label="Chọn cặp giao dịch" style="display:none"><option>BTCUSDT</option></select>
-</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn active" data-days="auto">AUTO</button><button class="range-btn" data-days="1">1D</button><button class="range-btn" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><label><input type="checkbox" data-overlay="volume_surge" checked> Volume đột biến</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
+</div><div id="tfControls"><button class="tf active" data-tf="15m">15m</button><button class="tf" data-tf="1h">1h</button><button class="tf" data-tf="4h">4h</button></div><div id="rangeControls" style="display:flex;border:1px solid #31404c;border-radius:3px;overflow:hidden;margin-left:6px"><button class="range-btn active" data-days="auto">AUTO</button><button class="range-btn" data-days="1">1D</button><button class="range-btn" data-days="3">3D</button><button class="range-btn" data-days="7">7D</button><button class="range-btn" data-days="all">ALL</button></div></div></div><div class="overlay-controls" aria-label="Overlay controls"><label><input type="checkbox" data-overlay="structure" checked> Cấu trúc (BOS/CHoCH)</label><label><input type="checkbox" data-overlay="ob" checked> Khối cá voi (Order Blocks)</label><label><input type="checkbox" data-overlay="position" checked> Vị thế R:R (Position Tool)</label><label><input type="checkbox" data-overlay="trendlines" checked> Trendlines</label><label><input type="checkbox" data-overlay="history" checked> Lịch sử lệnh</label><label><input type="checkbox" data-overlay="volume" checked> Khối lượng (Volume)</label><label><input type="checkbox" data-overlay="volume_surge" checked> Volume đột biến</label><label class="volume-profile-toggle"><input id="volumeProfileToggle" type="checkbox" aria-controls="volumeProfileCanvas"> Volume Profile · aggTrades 24h</label><span id="candleCountdown" class="count" style="color:var(--cyan);font-weight:600">⏳ --:--</span><span id="liveCandle" class="live-candle hidden">PROVISIONAL · OPEN CANDLE</span><span id="lastUpdateAge" class="count">WAITING FOR TICK</span></div><div class="chart-wrap">
   <div id="tvChartContainer"></div>
+  <canvas id="volumeProfileCanvas" class="volume-profile-canvas" aria-hidden="true"></canvas>
+  <div id="volumeProfileLabel" class="volume-profile-label" role="status" aria-live="polite"></div>
   <div class="loading hidden" id="chartLoading">LOADING MARKET DATA…</div>
   <div class="signal-chart-tooltip hidden" id="signalChartTooltip">
     <div class="sct-head">
@@ -510,15 +512,30 @@
 
 </div><div class="toast" id="toast"></div>
 <script type="module">
-import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio} from '/static/chart_stream.js?v=lina1';
+import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio,buildVolumeProfile,createVolumeProfileController,renderVolumeProfile} from '/static/chart_stream.js?v=volprof2';
 (() => {
   const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
-  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'auto',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null,shapeSignalMap:new Map(),crosshairNearSignal:false,activeTooltipSignal:null};
+  const state={symbol:'BTCUSDT',timeframe:'15m',rangeDays:'auto',allSymbols:[],symbolFilterTab:'top',symbolQuery:'',widget:null,chartReady:false,orderLines:[],volumeStudyId:null,signals:[],historySignals:[],stats:{},feedTab:'ALL',symbols:[],tickers:{},ws:null,marketWs:null,chartPayload:null,lastTick:0,chartPrice:0,viewingHistorical:false,realtimeCallback:null,shapeSignalMap:new Map(),crosshairNearSignal:false,activeTooltipSignal:null,volumeProfile:null,volumeProfileData:null,volumeProfileObserver:null};
   window.__state=state;
   const toast=(msg)=>{const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600)};
   const fmt=(x)=>Number(x).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
   const timeNow=()=>new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(new Date())+' ICT';
   $('#clock').textContent=timeNow();
+  const volumeProfileToggle = $('#volumeProfileToggle');
+  volumeProfileToggle?.addEventListener('change', () => {
+    if (volumeProfileToggle.checked) loadVolumeProfileIfEnabled();
+    else state.volumeProfile?.clear();
+    drawVolumeProfile();
+  });
+  if (typeof ResizeObserver !== 'undefined') {
+    state.volumeProfileObserver = new ResizeObserver(() => drawVolumeProfile());
+    const chartWrap = document.querySelector('.chart-wrap');
+    if (chartWrap) state.volumeProfileObserver.observe(chartWrap);
+  }
+  window.addEventListener('pagehide', () => {
+    state.volumeProfile?.destroy();
+    state.volumeProfileObserver?.disconnect();
+  }, { once: true });
   setInterval(()=>{
     $('#clock').textContent=timeNow();
     const cd=$('#candleCountdown');
@@ -580,6 +597,63 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
     const tt=$('#signalChartTooltip');
     if(tt)tt.classList.add('hidden');
     state.activeTooltipSignal=null;
+  }
+
+  function profileCoordinate(price) {
+    const chart = state.widget?.chart?.();
+    const pane = chart?.getPanes?.()?.find(p => p.hasMainSeries?.());
+    const scale = pane?.getMainSourcePriceScale?.();
+    if (!scale || typeof scale.coordinateToPrice !== 'function') return null;
+    const range = scale.getVisiblePriceRange?.();
+    if (!range) return null;
+    const low = Number(range.from);
+    const high = Number(range.to);
+    const paneHeight = Number(pane.getHeight?.());
+    if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low || !Number.isFinite(paneHeight)) return null;
+    // Invert the public price scale mapping with binary search; it avoids private chart internals.
+    let lo = 0, hi = paneHeight;
+    for (let i = 0; i < 32; i++) {
+      const mid = (lo + hi) / 2;
+      const p = Number(scale.coordinateToPrice(mid));
+      if (!Number.isFinite(p)) return null;
+      if (p > price) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  function drawVolumeProfile() {
+    const canvas = $('#volumeProfileCanvas');
+    const label = $('#volumeProfileLabel');
+    const toggle = $('#volumeProfileToggle');
+    if (!canvas || !label || !toggle) return;
+    const enabled = toggle.checked;
+    const wrapRect = canvas.parentElement.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
+    const canvasWidth = rect.width || wrapRect.width;
+    const canvasHeight = rect.height || wrapRect.height;
+    const stateData = state.volumeProfile?.getState?.() || { status: 'idle' };
+    const profile = stateData.trades?.length ? buildVolumeProfile(stateData.trades) : null;
+    const result = renderVolumeProfile({
+      canvas, label, state: stateData, profile, enabled,
+      width: canvasWidth || 0, height: canvasHeight || 0,
+      coordinate: price => profileCoordinate(price),
+      plotOffsetX: 40,
+      plotOffsetY: 42,
+      priceScaleWidth: 68,
+    });
+    canvas.style.transform = '';
+    state.volumeProfileData = result;
+  }
+
+  function ensureVolumeProfileController() {
+    if (state.volumeProfile) return state.volumeProfile;
+    state.volumeProfile = createVolumeProfileController({ onState: () => drawVolumeProfile() });
+    return state.volumeProfile;
+  }
+
+  function loadVolumeProfileIfEnabled() {
+    if (!$('#volumeProfileToggle')?.checked) return;
+    ensureVolumeProfileController().load(state.symbol).then(() => drawVolumeProfile());
   }
 
   function clearTradingViewDrawings(){
@@ -807,9 +881,14 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
             if(state.chartPayload){
               renderTradingViewDrawings(state.chartPayload);
               applyTimeRange(state.rangeDays||'auto');
+              drawVolumeProfile();
             }
           });
         }
+        if(c.onVisibleRangeChanged){
+          c.onVisibleRangeChanged().subscribe(null,()=>drawVolumeProfile());
+        }
+        loadVolumeProfileIfEnabled();
       }catch(err){console.warn('onDataLoaded subscription error:',err);}
 
       try{
@@ -947,7 +1026,7 @@ import {upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,structu
 
   async function loadChart(){$('#chartLoading').classList.remove('hidden');$('#chartSymbol').textContent=state.symbol;$('#frameLabel').textContent=state.timeframe;try{const q=new URLSearchParams({symbol:state.symbol,timeframe:state.timeframe,limit:'1000'});const r=await fetch('/api/chart?'+q);if(!r.ok)throw Error('chart '+r.status);const d=await r.json();state.chartPayload=d;const rb=$('#regimeBadge');if(rb&&d.regime){rb.textContent=`${d.regime} (ADX ${d.adx!=null?d.adx:'--'})`;rb.style.color=d.regime==='RANGING'?'var(--amber)':'var(--green)';}renderTradingViewDrawings(d);applyTimeRange(state.rangeDays||'auto');if(shouldShowConnectingStatus({marketReadyState:state.marketWs?.readyState})){setStreamStatus('connecting')}}catch(e){console.error(e);toast('Chart load error: '+e.message)}finally{$('#chartLoading').classList.add('hidden')}}
 
-  async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;state.symbol=symbol;$('#symbolSelect').value=symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=symbol;$('#chartSymbol').textContent=symbol;if(newsController)newsController.refresh();if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();}
+  async function selectSymbol(symbol){if(state.marketWs){state.marketWs.onclose=null;state.marketWs.close();state.marketWs=null}state.viewingHistorical=false;if(state.symbol!==symbol&&state.volumeProfile){state.volumeProfile.clear();drawVolumeProfile();}state.symbol=symbol;$('#symbolSelect').value=symbol;if($('#symbolPickerLabel'))$('#symbolPickerLabel').textContent=symbol;$('#chartSymbol').textContent=symbol;if(newsController)newsController.refresh();if(state.widget&&state.chartReady){state.widget.setSymbol(symbol,timeframeToTradingView(state.timeframe),async()=>{await loadChart();});}else{await loadChart();}connectMarketWs();if($('#volumeProfileToggle')?.checked)loadVolumeProfileIfEnabled();drawVolumeProfile();}
 
   async function loadStatus(){try{const r=await fetch('/api/status');if(!r.ok)throw Error();const d=await r.json();if(d.last_scan_time){$('#lastScan').textContent=new Date(d.last_scan_time*1000).toLocaleTimeString('en-GB',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit'})+' ICT'}$('#scanStatus').textContent=d.is_scanning?'SCANNING':'READY';$('#scanStatus').style.color=d.is_scanning?'var(--amber)':'var(--green)';$('#scanEvery').textContent=Math.round((d.scan_interval_seconds||300)/60)+'m interval';await loadSignals()}catch{}}
 

@@ -12,6 +12,9 @@
    * Tự động phát hiện vùng Hỗ trợ/Kháng cự ngang và vùng mất cân bằng thanh khoản **FVG (Fair Value Gap)**.
 2. **Nhận Diện Tín Hiệu Breakout Kèm Volume**:
    * Phát hiện nến đóng cửa đâm thủng đường cản chéo (Downtrend Resistance $\rightarrow$ Breakout LONG; Uptrend Support $\rightarrow$ Breakdown SHORT).
+   * Dashboard có overlay tùy chọn **Volume Profile · aggTrades 24h**: histogram ngang theo giá, POC và Value Area 70% (VAH/VAL), tính từ giá và khối lượng cơ sở của giao dịch tổng hợp Binance USDⓈ-M thật. Đây là thống kê giao dịch, không phải order book/footprint và không tham gia lọc tín hiệu.
+   * Binance giới hạn truy vấn `aggTrades` trong 2 ngày; dashboard chỉ lấy cửa sổ 24h, tối đa 20 trang × 1000 dòng, cache 60 giây. Nếu chạm giới hạn, thiếu bằng chứng phủ đầu cửa sổ (trade đầu cách start quá 5 phút) hoặc upstream lỗi, profile được gắn trạng thái một phần/lỗi thay vì bị coi là đầy đủ.
+   * Dữ liệu khối lượng dùng đơn vị base quantity (`q`), không phải notional quote volume. Volume Profile được tải theo yêu cầu khi bật overlay; tắt overlay không gửi request nền.
 3. **Quản Trị Rủi Ro Khắt Khe ($R:R \ge 1:2.0$)**:
    * Tự động đo khoảng cách cắt lỗ (Stop Loss) theo râu nến/đáy Swing gần nhất.
    * Tính toán sẵn 2 mốc chốt lời: **TP1 ($1.5R$)** và **TP2 ($2.5R$)**.

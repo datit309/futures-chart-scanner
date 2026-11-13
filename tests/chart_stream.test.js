@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData, formatVolumeSurgeShapes, computeVolumeSurgeRatio } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData, formatVolumeSurgeShapes, computeVolumeSurgeRatio, buildVolumeProfile, createVolumeProfileController, renderVolumeProfile } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -619,4 +619,160 @@ test('formatSignalTooltipData exposes volume surge ratio when present', () => {
   const tooltip = formatSignalTooltipData(signal);
   assert.ok(tooltip.volumeText.includes('2.6'), 'volume ratio surfaced in tooltip');
   assert.ok(tooltip.volumeText.includes('SMA'), 'explains the baseline');
+});
+
+test('buildVolumeProfile calculates POC and 70 percent value area from trade fixtures', () => {
+  const trades = [
+    { id: 1, price: 100, quantity: 1, timestamp: 1 },
+    { id: 2, price: 101, quantity: 5, timestamp: 2 },
+    { id: 3, price: 102, quantity: 2, timestamp: 3 },
+    { id: 4, price: 103, quantity: 1, timestamp: 4 },
+    { id: 5, price: 104, quantity: 1, timestamp: 5 },
+  ];
+  const profile = buildVolumeProfile(trades, { binCount: 5, valueAreaPercent: 0.7 });
+  assert.equal(profile.tradeCount, 5);
+  assert.equal(profile.totalQuantity, 10);
+  assert.equal(profile.bins.length, 5);
+  assert.ok(Math.abs(profile.poc.price - 101.2) < 1e-9);
+  assert.equal(profile.poc.quantity, 5);
+  assert.ok(Math.abs(profile.val - 100.8) < 1e-9);
+  assert.ok(Math.abs(profile.vah - 102.4) < 1e-9);
+  const vaQuantity = profile.bins
+    .filter(b => b.priceLow >= profile.val && b.priceHigh <= profile.vah)
+    .reduce((sum, b) => sum + b.quantity, 0);
+  assert.ok(vaQuantity >= 7, 'value area must cover at least 70% of total quantity');
+});
+
+test('buildVolumeProfile handles empty malformed and single-price inputs', () => {
+  assert.equal(buildVolumeProfile([]), null);
+  assert.equal(buildVolumeProfile([{ id: 1, price: 'NaN', quantity: 3, timestamp: 1 }]), null);
+
+  const flat = buildVolumeProfile([
+    { id: 1, price: 42, quantity: 1, timestamp: 1 },
+    { id: 2, price: 42, quantity: 2, timestamp: 2 },
+  ], { binCount: 8, valueAreaPercent: 0.7 });
+  assert.equal(flat.bins.length, 1);
+  assert.equal(flat.poc.price, 42);
+  assert.equal(flat.totalQuantity, 3);
+});
+
+test('buildVolumeProfile resolves equal-volume ties deterministically', () => {
+  const trades = [
+    { id: 1, price: 10, quantity: 1, timestamp: 1 },
+    { id: 2, price: 20, quantity: 1, timestamp: 2 },
+  ];
+  const a = buildVolumeProfile(trades, { binCount: 2, valueAreaPercent: 0.5 });
+  const b = buildVolumeProfile(trades, { binCount: 2, valueAreaPercent: 0.5 });
+  assert.equal(a.poc.price, b.poc.price);
+  assert.equal(a.val, b.val);
+  assert.equal(a.vah, b.vah);
+  // Deterministic POC tie goes to the lower-price bin.
+  assert.equal(a.poc.price, 12.5);
+});
+
+test('volumeProfileController aborts stale symbol response and preserves partial state', async () => {
+  const requests = [];
+  const fetchImpl = (url, { signal } = {}) => new Promise((resolve, reject) => {
+    const symbol = new URL(url, 'http://localhost').searchParams.get('symbol');
+    requests.push({ symbol, signal });
+    if (symbol === 'BTCUSDT') {
+      signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      return;
+    }
+    resolve({ ok: true, json: async () => ({
+      symbol, partial: true, partial_reason: 'page_cap', trade_count: 20000,
+      trades: [{ id: 1, price: 100, quantity: 1, timestamp: 1 }],
+    }) });
+  });
+  const states = [];
+  const controller = createVolumeProfileController({ fetchImpl, onState: state => states.push(state) });
+  const oldRequest = controller.load('BTCUSDT');
+  await Promise.resolve();
+  await controller.load('ETHUSDT');
+  await oldRequest;
+  assert.equal(requests[0].signal.aborted, true);
+  assert.equal(controller.getState().symbol, 'ETHUSDT');
+  assert.equal(controller.getState().partial, true);
+  assert.equal(controller.getState().partialReason, 'page_cap');
+  assert.ok(states.some(s => s.status === 'partial'));
+});
+
+test('volumeProfileController caches for 60 seconds and refetches after expiry', async () => {
+  let now = 1000;
+  let calls = 0;
+  const fetchImpl = async url => {
+    calls++;
+    const symbol = new URL(url, 'http://localhost').searchParams.get('symbol');
+    return { ok: true, json: async () => ({
+      symbol, partial: false, trade_count: 2,
+      trades: [{ id: calls, price: 100, quantity: 1, timestamp: calls }],
+    }) };
+  };
+  const controller = createVolumeProfileController({ fetchImpl, now: () => now });
+  await controller.load('BTCUSDT');
+  await controller.load('BTCUSDT');
+  assert.equal(calls, 1);
+  now += 60001;
+  await controller.load('BTCUSDT');
+  assert.equal(calls, 2);
+});
+
+test('volumeProfileController bounds per-symbol cache to eight profiles', async () => {
+  let calls = 0;
+  const fetchImpl = async url => {
+    calls++;
+    const symbol = new URL(url, 'http://localhost').searchParams.get('symbol');
+    return { ok: true, json: async () => ({ symbol, partial: false, trade_count: 1, trades: [{ id: calls, price: 100 + calls, quantity: 1, timestamp: calls }] }) };
+  };
+  const controller = createVolumeProfileController({ fetchImpl });
+  for (let i = 1; i <= 9; i++) await controller.load(`T${i}USDT`);
+  assert.equal(calls, 9);
+  await controller.load('T1USDT');
+  assert.equal(calls, 10, 'oldest symbol profile should have been evicted after cache reaches eight');
+});
+
+test('renderVolumeProfile reports empty partial and unavailable states', () => {
+  const canvas = { width: 0, height: 0, style: {}, getContext: () => ({ clearRect() {}, fillRect() {}, strokeRect() {}, fillText() {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {} }) };
+  const label = { textContent: '', className: '' };
+  const base = { canvas, label, width: 500, height: 300, devicePixelRatio: 1 };
+  renderVolumeProfile({ ...base, state: { status: 'ready', symbol: 'BTCUSDT', partial: false, tradeCount: 0 }, profile: null });
+  assert.match(label.textContent, /CHƯA CÓ GIAO DỊCH/);
+  renderVolumeProfile({ ...base, state: { status: 'partial', symbol: 'BTCUSDT', partial: true, partialReason: 'page_cap', tradeCount: 20000 }, profile: null });
+  assert.match(label.textContent, /MỘT PHẦN/);
+  let barsDrawn = 0;
+  const partialCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ clearRect() {}, fillRect() { barsDrawn++; }, stroke() {}, beginPath() {}, moveTo() {}, lineTo() {}, fillText() {}, setTransform() {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {} }) };
+  renderVolumeProfile({ canvas: partialCanvas, label, state: { status: 'partial', symbol: 'BTCUSDT', partial: true, partialReason: 'page_cap', tradeCount: 20000 }, profile: { bins: [{ priceLow: 100, priceHigh: 101, quantity: 3 }], poc: { price: 100.5 }, vah: 101, val: 100, totalQuantity: 3 }, width: 500, height: 300, coordinate: p => 150 - p });
+  assert.ok(barsDrawn > 0, 'partial trades still visualize with warning');
+  assert.match(label.textContent, /MỘT PHẦN/);
+  const partialTrades = [
+    { id: 1, price: 100, quantity: 1, timestamp: 1700000000000 },
+    { id: 2, price: 101, quantity: 1, timestamp: 1700000240000 },
+  ];
+  const durationCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ clearRect() {}, fillRect() {}, stroke() {}, beginPath() {}, moveTo() {}, lineTo() {}, fillText() {}, setTransform() {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {} }) };
+  renderVolumeProfile({ ...base, canvas: durationCanvas, state: { status: 'partial', symbol: 'BTCUSDT', partialReason: 'page_cap', tradeCount: 20000, trades: partialTrades }, profile: { bins: [{ priceHigh: 101, priceLow: 100, quantity: 2 }], poc: { price: 100.5 }, vah: 101, val: 100, totalQuantity: 2 }, coordinate: p => 150 - p });
+  assert.match(label.textContent, /PHỦ 4 PHÚT/, 'partial badge discloses how much time the capped sample spans');
+  renderVolumeProfile({ ...base, state: { status: 'error', symbol: 'BTCUSDT' }, profile: null });
+  assert.match(label.textContent, /LỖI TẢI/);
+  const unavailableCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ clearRect() {}, fillRect() {}, stroke() {}, beginPath() {}, moveTo() {}, lineTo() {}, fillText() {}, setTransform() {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {} }) };
+  renderVolumeProfile({ ...base, canvas: unavailableCanvas, state: { status: 'ready', symbol: 'BTCUSDT', tradeCount: 1 }, profile: { bins: [{ priceHigh: 101, priceLow: 100, quantity: 1 }], poc: { price: 100.5 }, vah: 101, val: 100, totalQuantity: 1 }, coordinate: () => null });
+  assert.match(label.textContent, /KHÔNG KHẢ DỤNG/);
+});
+
+test('renderVolumeProfile caps histogram width for a 390px mobile chart', () => {
+  const canvas = { width: 0, height: 0, style: {}, getContext: () => ({ clearRect() {}, fillRect() {}, stroke() {}, beginPath() {}, moveTo() {}, lineTo() {}, fillText() {}, setTransform() {}, set fillStyle(_) {}, set strokeStyle(_) {}, set lineWidth(_) {}, set font(_) {} }) };
+  const label = { textContent: '', className: '' };
+  const profile = { bins: [{ priceLow: 100, priceHigh: 101, quantity: 1 }], poc: { price: 100.5 }, vah: 101, val: 100, totalQuantity: 1 };
+  const result = renderVolumeProfile({ canvas, label, state: { status: 'ready', tradeCount: 1 }, profile, enabled: true, width: 390, height: 300, coordinate: p => 150 - p });
+  assert.ok(result.paneWidth <= 112, 'mobile histogram must be capped at 112px');
+  assert.ok(result.paneWidth < 390 * 0.24, 'mobile width also respects available plot ratio');
+});
+
+test('renderVolumeProfile clears canvas when disabled', () => {
+  let cleared = 0;
+  const canvas = { width: 200, height: 100, style: {}, getContext: () => ({ clearRect() { cleared++; } }) };
+  const label = { textContent: 'old', className: '' };
+  renderVolumeProfile({ canvas, label, enabled: false, width: 200, height: 100 });
+  assert.ok(cleared > 0);
+  assert.equal(label.textContent, '');
+  assert.equal(canvas.style.display, 'none');
 });
