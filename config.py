@@ -2,12 +2,14 @@ import os
 import json
 from dataclasses import dataclass, asdict
 
+TRUSTED_SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
+
 @dataclass
 class ScannerConfig:
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     timeframe: str = "15m"
-    top_n_coins: int = 30
+    top_n_coins: int = 15
     min_rr: float = 2.0
     min_trendline_touches: int = 3
     scan_interval_seconds: int = 300
@@ -18,7 +20,9 @@ class ScannerConfig:
     def from_dict(cls, data: dict) -> "ScannerConfig":
         valid_keys = {f for f in cls.__dataclass_fields__}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
-        return cls(**filtered)
+        config = cls(**filtered)
+        config.top_n_coins = min(15, max(1, int(config.top_n_coins)))
+        return config
 
     @classmethod
     def load(cls, file_path: str = "config.json") -> "ScannerConfig":
@@ -35,7 +39,7 @@ class ScannerConfig:
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
             timeframe=os.getenv("TIMEFRAME", "15m"),
-            top_n_coins=int(os.getenv("TOP_N_COINS", "30")),
+            top_n_coins=min(15, max(1, int(os.getenv("TOP_N_COINS", "15")))),
             min_rr=float(os.getenv("MIN_RR", "2.0")),
             min_trendline_touches=int(os.getenv("MIN_TRENDLINE_TOUCHES", "3")),
             scan_interval_seconds=int(os.getenv("SCAN_INTERVAL_SECONDS", "300")),

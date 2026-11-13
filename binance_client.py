@@ -5,6 +5,8 @@ import re
 import time
 from typing import List, Dict, Any, Optional
 
+from config import TRUSTED_SYMBOLS
+
 class BinanceClient:
     def __init__(self, base_url: str = "https://fapi.binance.com"):
         self.base_url = base_url.rstrip("/")
@@ -30,42 +32,40 @@ class BinanceClient:
             return await resp.json()
 
     async def get_top_futures_symbols(self, limit: int = 30) -> List[str]:
-        """Return active USDT perpetual symbols ranked by 24h quote volume.
+        """Refresh metrics for the fixed trusted whitelist and return that whitelist.
 
-        The matching 24h ticker metrics are retained in ``ticker_metrics``.
-        A contract remains eligible when its ticker is temporarily absent.
+        `limit` is retained for source compatibility only and cannot expand or
+        reduce the agreed live universe. Failed upstream refreshes preserve the
+        last ticker snapshot; the fixed symbols remain authoritative.
         """
         try:
             exchange_info = await self._fetch_json(f"{self.base_url}/fapi/v1/exchangeInfo")
             tickers = await self._fetch_json(f"{self.base_url}/fapi/v1/ticker/24hr")
+            if not isinstance(exchange_info, dict) or not isinstance(exchange_info.get("symbols"), list) or not isinstance(tickers, list):
+                raise ValueError("invalid Binance symbol refresh payload")
+            eligible_contracts = {
+                c.get("symbol") for c in exchange_info["symbols"]
+                if isinstance(c, dict)
+                and c.get("status") == "TRADING"
+                and c.get("contractType") == "PERPETUAL"
+                and c.get("quoteAsset") == "USDT"
+            }
             ticker_by_symbol = {
                 item.get("symbol"): item for item in tickers
-                if isinstance(item, dict) and item.get("symbol")
+                if isinstance(item, dict) and item.get("symbol") in TRUSTED_SYMBOLS
             }
-            eligible = []
-            self.ticker_metrics = {}
-            for contract in exchange_info.get("symbols", []):
-                if (
-                    contract.get("status") != "TRADING"
-                    or contract.get("contractType") != "PERPETUAL"
-                    or contract.get("quoteAsset") != "USDT"
-                ):
-                    continue
-                symbol = contract["symbol"]
-                ticker = ticker_by_symbol.get(symbol)
-                volume = float(ticker.get("quoteVolume", 0)) if ticker else 0.0
-                self.ticker_metrics[symbol] = {
+            candidate_metrics: Dict[str, Dict[str, float]] = {}
+            for symbol in TRUSTED_SYMBOLS:
+                ticker = ticker_by_symbol.get(symbol) if symbol in eligible_contracts else None
+                candidate_metrics[symbol] = {
                     "lastPrice": float(ticker.get("lastPrice", 0)) if ticker else 0.0,
                     "priceChangePercent": float(ticker.get("priceChangePercent", 0)) if ticker else 0.0,
-                    "quoteVolume": volume,
+                    "quoteVolume": float(ticker.get("quoteVolume", 0)) if ticker else 0.0,
                 }
-                eligible.append((volume, symbol))
-            eligible.sort(key=lambda row: (-row[0], row[1]))
-            self.ticker_metrics = {symbol: self.ticker_metrics[symbol] for _, symbol in eligible}
-            return [symbol for _, symbol in eligible[:limit]]
+            self.ticker_metrics = candidate_metrics
         except Exception as e:
-            print(f"[BinanceClient] Error fetching top symbols: {e}")
-            return []
+            print(f"[BinanceClient] Error refreshing trusted symbols: {e}")
+        return list(TRUSTED_SYMBOLS)
 
     async def get_klines(self, symbol: str, interval: str = "15m", limit: int = 500, endTime: Optional[int] = None) -> List[Dict[str, Any]]:
         """

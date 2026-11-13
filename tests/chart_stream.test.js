@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData, formatVolumeSurgeShapes, computeVolumeSurgeRatio, buildVolumeProfile, createVolumeProfileController, renderVolumeProfile } from '../static/chart_stream.js';
+import { upsertKline, createThrottle, chooseMarketStructure, trendlinePoints, drawZoneBands, shouldShowConnectingStatus, clientReconnectDelay, structureToOverlays, formatOutcomeBadge, filterSignals, formatCandleCountdown, symbolToTradingView, timeframeToTradingView, formatTrendlineShape, formatOrderBlockShape, createTradingViewDatafeed, formatStructureBreakShape, formatPositionShape, formatSignalPlainExplanation, filterSymbols, formatHistoryTrades, formatSignalTooltipData, formatVolumeSurgeShapes, computeVolumeSurgeRatio, buildVolumeProfile, createVolumeProfileController, renderVolumeProfile, isLiveSymbolAllowed } from '../static/chart_stream.js';
 
 test('structureToOverlays normalizes a server structure message', () => {
   const payload = {
@@ -775,4 +775,19 @@ test('renderVolumeProfile clears canvas when disabled', () => {
   assert.ok(cleared > 0);
   assert.equal(label.textContent, '');
   assert.equal(canvas.style.display, 'none');
+});
+
+test('liveSymbolMembership rejects historical symbols without scheduling reconnect', () => {
+  const liveSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+  assert.equal(isLiveSymbolAllowed('BTCUSDT', liveSymbols), true);
+  assert.equal(isLiveSymbolAllowed('DOGEUSDT', liveSymbols), false);
+  assert.equal(isLiveSymbolAllowed('dogeusdt', liveSymbols), false);
+  assert.equal(isLiveSymbolAllowed('DOGEUSDT', []), false);
+  assert.equal(isLiveSymbolAllowed('DOGEUSDT', null), false);
+});
+
+test('filterSymbols only searches canonical top15 live symbols when universe changes', () => {
+  const selected = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+  assert.deepEqual(filterSymbols(selected, 'doge'), []);
+  assert.deepEqual(filterSymbols(selected, 'eth').map(x => x.symbol || x), ['ETHUSDT']);
 });

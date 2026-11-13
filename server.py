@@ -8,7 +8,7 @@ import aiohttp
 from aiohttp import WSMsgType, web
 from aiohttp.client_exceptions import ClientConnectionResetError
 
-from config import ScannerConfig
+from config import ScannerConfig, TRUSTED_SYMBOLS
 from binance_client import BinanceClient
 from technical_engine import TechnicalEngine
 from risk_manager import RiskManager, EnrichedSignal
@@ -25,6 +25,12 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 MARKET_WS_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
 MARKET_STALE_AFTER_SECONDS = 15.0
 MARKET_WS_POLL_SECONDS = 3.0
+
+
+def filter_live_signals(signals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Build the live OPEN signal map from the fixed trusted-symbol whitelist only."""
+    return {s["symbol"]: s for s in signals if s.get("symbol") in TRUSTED_SYMBOLS}
+
 MARKET_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,30}USDT$")
 
 
@@ -91,12 +97,28 @@ class WebServerState:
         self._volume_profile_inflight: Dict[str, asyncio.Task] = {}
         try:
             open_signals = self.signal_tracker.list_signals(status_filter="OPEN", limit=100)
-            self.active_signals: Dict[str, Dict[str, Any]] = {s["symbol"]: s for s in open_signals}
+            self.active_signals: Dict[str, Dict[str, Any]] = filter_live_signals(open_signals)
         except Exception:
             self.active_signals: Dict[str, Dict[str, Any]] = {}
         self.top_symbols: List[str] = []
         self.ws_clients: set = set()
         self.is_scanning: bool = False
+        self.universe_updated_at: Optional[float] = None
+        self.universe_stale: bool = True
+        self._universe_refresh_lock = asyncio.Lock()
+
+    async def refresh_universe(self) -> List[str]:
+        """Refresh the canonical live symbol universe, retaining the last good snapshot on failure."""
+        async with self._universe_refresh_lock:
+            try:
+                selected = list(TRUSTED_SYMBOLS)
+                self.top_symbols = selected
+                self.universe_updated_at = time.time()
+                self.universe_stale = False
+            except Exception as exc:
+                self.universe_stale = True
+                print(f"[Universe] Refresh failed; retaining previous symbols: {exc}")
+            return list(self.top_symbols)
 
     async def broadcast_ws(self, msg_type: str, data: Any):
         if not self.ws_clients:
@@ -116,9 +138,7 @@ class WebServerState:
         self.is_scanning = True
         try:
             print("[WebServer] 🔄 Đang chạy chu kỳ quét thị trường...")
-            symbols = await self.client.get_top_futures_symbols(limit=self.config.top_n_coins)
-            if symbols:
-                self.top_symbols = symbols
+            await self.refresh_universe()
 
             # Bitcoin Volatility Circuit Breaker check
             btc_circuit_active = False
@@ -222,11 +242,14 @@ class WebServerState:
                             # Broadcast alert to WS
                             await self.broadcast_ws("NEW_SIGNAL", sig_dict)
 
+            # Keep live scan-complete payload aligned with the fixed whitelist even if
+            # legacy rows were loaded or a test/extension mutated active_signals.
+            self.active_signals = filter_live_signals(list(self.active_signals.values()))
             self.last_scan_time = time.time()
             await self.broadcast_ws("SCAN_COMPLETE", {
                 "count": len(found_signals),
                 "last_scan_time": self.last_scan_time,
-                "signals": list(self.active_signals.values())
+                "signals": [signal for signal in self.active_signals.values() if signal.get("symbol") in TRUSTED_SYMBOLS]
             })
             return found_signals
         finally:
@@ -240,18 +263,23 @@ async def handle_index(request: web.Request) -> web.Response:
 
 async def handle_api_status(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
-    if not state.client.ticker_metrics:
-        state.top_symbols = await state.client.get_top_futures_symbols(limit=state.config.top_n_coins)
+    if not state.top_symbols or not state.client.ticker_metrics:
+        await state.refresh_universe()
+    universe_limit = len(TRUSTED_SYMBOLS)
     return web.json_response({
         "status": "online",
         "timeframe": state.config.timeframe,
-        "top_n_coins": state.config.top_n_coins,
+        "top_n_coins": universe_limit,
+        "universe_limit": universe_limit,
+        "universe_ranking": "fixedWhitelist",
+        "universe_updated_at": state.universe_updated_at,
+        "universe_stale": state.universe_stale,
         "min_rr": state.config.min_rr,
         "last_scan_time": state.last_scan_time,
         "is_scanning": state.is_scanning,
         "scan_interval_seconds": state.config.scan_interval_seconds,
-        "active_signals": list(state.active_signals.values()),
-        "top_symbols": state.top_symbols[:15],
+        "active_signals": [signal for signal in state.active_signals.values() if signal.get("symbol") in TRUSTED_SYMBOLS],
+        "top_symbols": list(TRUSTED_SYMBOLS),
         "stats": state.signal_tracker.get_stats(),
     })
 
@@ -265,6 +293,13 @@ async def handle_api_signals(request: web.Request) -> web.Response:
         symbol_filter=symbol_filter,
         limit=limit,
     )
+    if (status_filter or "").upper() == "OPEN":
+        signals = [
+            {**signal, "monitoring_status": "MONITORED" if signal.get("symbol") in TRUSTED_SYMBOLS else "NOT_MONITORED"}
+            for signal in signals
+        ]
+    elif (status_filter or "").upper() != "HISTORY":
+        signals = [signal for signal in signals if signal.get("symbol") in TRUSTED_SYMBOLS]
     stats = state.signal_tracker.get_stats()
     return web.json_response({
         "signals": signals,
@@ -399,16 +434,22 @@ async def handle_api_signal_chart(request: web.Request) -> web.Response:
 async def handle_api_symbols(request: web.Request) -> web.Response:
     state: WebServerState = request.app["state"]
     if not state.top_symbols:
-        state.top_symbols = await state.client.get_top_futures_symbols(limit=state.config.top_n_coins)
-    tickers = {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in state.top_symbols}
-    resp: Dict[str, Any] = {
-        "symbols": state.top_symbols,
-        "count": len(state.top_symbols),
+        await state.refresh_universe()
+    universe_limit = len(TRUSTED_SYMBOLS)
+    symbols = list(TRUSTED_SYMBOLS)
+    tickers = {symbol: state.client.ticker_metrics.get(symbol, {}) for symbol in symbols}
+    return web.json_response({
+        "symbols": symbols,
+        "count": len(symbols),
         "tickers": tickers,
-    }
-    if state.client.ticker_metrics:
-        resp["all_symbols"] = list(state.client.ticker_metrics.keys())
-    return web.json_response(resp)
+        "universe": {
+            "limit": universe_limit,
+            "hard_limit": len(TRUSTED_SYMBOLS),
+            "ranking": "fixedWhitelist",
+            "updated_at": state.universe_updated_at,
+            "stale": state.universe_stale,
+        },
+    })
 
 def build_structure_payload(
     state: "WebServerState",
@@ -533,6 +574,10 @@ async def handle_api_chart(request: web.Request) -> web.Response:
     limit = int(request.query.get("limit", "1000"))
     end_time_raw = request.query.get("endTime")
     end_time = int(end_time_raw) if end_time_raw and end_time_raw.isdigit() else None
+    if not state.top_symbols:
+        await state.refresh_universe()
+    if not MARKET_SYMBOL_RE.fullmatch(symbol) or symbol not in TRUSTED_SYMBOLS:
+        return web.json_response({"error": "symbol_not_in_universe"}, status=400)
 
     if end_time is not None:
         klines = await state.client.get_klines(symbol, interval=timeframe, limit=limit, endTime=end_time)
@@ -600,9 +645,9 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     await ws.send_str(json.dumps({
         "type": "INIT_STATE",
         "data": {
-            "active_signals": list(state.active_signals.values()),
+            "active_signals": [signal for signal in state.active_signals.values() if signal.get("symbol") in TRUSTED_SYMBOLS],
             "last_scan_time": state.last_scan_time,
-            "top_symbols": state.top_symbols[:20]
+            "top_symbols": list(TRUSTED_SYMBOLS)
         }
     }))
 
@@ -620,11 +665,10 @@ async def handle_market_ws(request: web.Request) -> web.StreamResponse:
     timeframe = request.query.get("timeframe", "")
     if timeframe not in MARKET_WS_TIMEFRAMES or not MARKET_SYMBOL_RE.fullmatch(symbol):
         return web.json_response({"error": "invalid_subscription"}, status=400)
-    if symbol not in state.top_symbols:
-        if symbol in state.client.ticker_metrics:
-            state.top_symbols.append(symbol)
-        else:
-            return web.json_response({"error": "invalid_subscription"}, status=400)
+    if not state.top_symbols:
+        await state.refresh_universe()
+    if symbol not in TRUSTED_SYMBOLS:
+        return web.json_response({"error": "symbol_not_in_universe"}, status=400)
 
     ws = web.WebSocketResponse(heartbeat=20.0)
     await ws.prepare(request)

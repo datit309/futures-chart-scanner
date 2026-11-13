@@ -5,7 +5,7 @@ import argparse
 from typing import List, Dict, Optional
 from datetime import datetime
 
-from config import ScannerConfig
+from config import ScannerConfig, TRUSTED_SYMBOLS
 from binance_client import BinanceClient
 from technical_engine import TechnicalEngine
 from risk_manager import RiskManager, EnrichedSignal
@@ -46,6 +46,10 @@ class ScannerPipeline:
         symbol: str, 
         save_dir: Optional[str] = None
     ) -> Optional[EnrichedSignal]:
+        symbol = symbol.upper()
+        if symbol not in TRUSTED_SYMBOLS:
+            print(f"[Whitelist] Từ chối coin ngoài whitelist: {symbol}")
+            return None
         klines = await self.client.get_klines(symbol, interval=self.config.timeframe, limit=80)
         if not klines or len(klines) < 15:
             return None
@@ -89,13 +93,9 @@ class ScannerPipeline:
         return None
 
     async def scan_cycle(self, save_dir: Optional[str] = None) -> List[EnrichedSignal]:
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Bắt đầu quét Top {self.config.top_n_coins} coin Binance Futures ({self.config.timeframe})...")
-        top_symbols = await self.client.get_top_futures_symbols(limit=self.config.top_n_coins)
-        if not top_symbols:
-            print("[Warning] Không lấy được danh sách symbols từ Binance.")
-            return []
-
-        print(f"-> Đã lấy {len(top_symbols)} coin volume lớn nhất: {', '.join(top_symbols[:8])}...")
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Bắt đầu quét {len(TRUSTED_SYMBOLS)} coin uy tín Binance Futures ({self.config.timeframe})...")
+        top_symbols = list(TRUSTED_SYMBOLS)
+        print(f"-> Universe cố định: {', '.join(top_symbols)}")
         
         found_signals: List[EnrichedSignal] = []
         # Concurrently process in batches of 5 to be polite with rate limits
@@ -117,7 +117,7 @@ class ScannerPipeline:
         print(f"-> Chu kỳ quét: mỗi {self.config.scan_interval_seconds}s | Khung: {self.config.timeframe}")
         if self.notifier.is_configured:
             await self.notifier.send_text_message(
-                f"🚀 <b>Crypto Futures Chart Scanner Online!</b>\nKhung: {self.config.timeframe} | Top: {self.config.top_n_coins} coins | Min R:R: 1:{self.config.min_rr}"
+                f"🚀 <b>Crypto Futures Chart Scanner Online!</b>\nKhung: {self.config.timeframe} | Universe: {len(TRUSTED_SYMBOLS)} trusted coins | Min R:R: 1:{self.config.min_rr}"
             )
         try:
             while True:

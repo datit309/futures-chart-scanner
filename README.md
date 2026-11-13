@@ -6,6 +6,18 @@
 
 ## ⚡ 1. Tính Năng Cốt Lõi
 
+### Live universe — whitelist coin tin cậy
+- Toàn bộ scan, watchlist, search, live chart và market WebSocket chỉ dùng whitelist cố định: **BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT**. Không xếp hạng động theo volume.
+- Coin ngoài whitelist không thể được chọn hoặc subscribe live. Historical signal/chart archive vẫn xem được cho tới purge thủ công.
+- Khi whitelist có hiệu lực, `OPEN` của coin bị loại sẽ **không còn được tracker cập nhật TP/SL/PnL**. Tín hiệu vẫn hiện trong OPEN feed với nhãn **NOT MONITORED** cho tới purge.
+- Khi đổi whitelist, không tự xóa DB. Nếu quyết định purge, dùng CLI preview trước; apply là thao tác riêng có backup/xác nhận và không chạy tự động. Khi purge được xác nhận, các dòng OPEN này cũng bị xóa và sẽ không còn khả năng theo dõi/khôi phục trạng thái giao dịch trừ khi restore backup.
+
+### Purge lịch sử coin ngoài whitelist (NGUY HIỂM, tùy chọn)
+- Ứng dụng **không tự xóa dữ liệu** khi whitelist thay đổi và không có purge endpoint trên web.
+- Preview chỉ đọc: `python3 purge_signals.py --db signals.db` — liệt kê symbol/status/OPEN count; không tạo backup hay sửa DB.
+- Khi fen chủ động muốn xóa vĩnh viễn, chạy `python3 purge_signals.py --db signals.db --apply`. CLI in toàn bộ summary trước, yêu cầu gõ đúng `PURGE`, sau đó mới tạo SQLite backup có WAL và chạy `integrity_check`/đối chiếu số dòng. Nếu backup/integrity không đạt, CLI luôn dừng và không có bỏ qua kiểm tra; nếu số dòng thay đổi giữa preview và lúc xóa thì cũng dừng. Backup thành công được giữ vô thời hạn, không tự động xóa.
+- Xác nhận purge sẽ xóa tất cả signal rows của symbol ngoài whitelist (kể cả OPEN và embedded candle snapshot), làm mất tracking OPEN và đổi thống kê. Không thể khôi phục ngoài backup. Tests chỉ dùng temporary DB; production DB không bị purge tự động.
+
 1. **Auto-Trendline & Cấu Trúc Đồ Thị**:
    * Tự động lọc đỉnh/đáy chuẩn xác bằng thuật toán Fractal $N$-nến (`find_swing_points`).
    * Tự động kẻ các đường Trendline Hỗ trợ / Kháng cự; loại bỏ đường rác và chỉ giữ lại những đường có $\ge 3$ lần chạm kiểm định mà không bị thân nến đâm thủng.
@@ -56,7 +68,6 @@ Mở file `config.json` (tự động tạo từ `config.example.json`) và đi�
     "telegram_bot_token": "YOUR_BOT_TOKEN_FROM_BOTFATHER",
     "telegram_chat_id": "YOUR_CHAT_ID",
     "timeframe": "15m",
-    "top_n_coins": 30,
     "min_rr": 2.0,
     "min_trendline_touches": 3,
     "scan_interval_seconds": 300

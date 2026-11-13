@@ -876,6 +876,10 @@ export function formatSignalTooltipData(signal) {
   };
 }
 
+export function isLiveSymbolAllowed(symbol, symbols) {
+  return Array.isArray(symbols) && symbols.includes(String(symbol || '').toUpperCase());
+}
+
 export function filterSymbols(symbols, query, limit = 50) {
   if (!Array.isArray(symbols)) return [];
   const rawQ = (query || '').toUpperCase().trim();
@@ -1072,4 +1076,4 @@ export function createNewsController({ container, getSymbol, fetchFn, now = () =
   return { refresh, start, stop };
 }
 
-if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio,buildVolumeProfile,createVolumeProfileController,renderVolumeProfile};
+if(typeof window!=='undefined')window.ChartStream={upsertKline,createThrottle,chooseMarketStructure,trendlinePoints,drawZoneBands,structureToOverlays,shouldShowConnectingStatus,clientReconnectDelay,formatOutcomeBadge,filterSignals,formatCandleCountdown,symbolToTradingView,timeframeToTradingView,formatTrendlineShape,formatOrderBlockShape,createTradingViewDatafeed,formatStructureBreakShape,formatPositionShape,formatSignalPlainExplanation,filterSymbols,formatHistoryTrades,renderNewsItems,createNewsController,formatNewsAge,NEWS_DISCLAIMER,NEWS_POLL_INTERVAL_MS,formatSignalTooltipData,formatVolumeSurgeShapes,computeVolumeSurgeRatio,buildVolumeProfile,createVolumeProfileController,renderVolumeProfile,isLiveSymbolAllowed};

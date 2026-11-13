@@ -1,32 +1,35 @@
-# QA Matrix — aggTrades Volume Profile
+# QA Matrix — Fixed Trusted-Coin Universe and Purge Safety
 
 Target: `http://127.0.0.1:8766/`
-Feature: opt-in Binance USDⓈ-M aggTrades 24h horizontal Volume Profile
-Data contract: `/api/volume-profile?symbol=BTCUSDT`; raw trades + coverage; 20-page/20,000-trade ceiling; browser computes bins/POC/70% VA.
+Whitelist: BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT.
+Destructive scope: only local manual CLI purge of non-whitelist `signals` rows (including OPEN and embedded kline_snapshot), never automatically and never via HTTP.
 
-## Environment note
-On 2026-11-13 the authorized app restart loaded the route; direct GET returned HTTP 200 JSON. The live browser then fetched 20,000 real BTC aggTrades, got `partial_reason=page_cap`, and rendered a visibly partial profile. The JSON response was about 1.70 MB and took 2.7–3.8 seconds. Binance upstream was reachable from the server. The browser tool does not expose a viewport-resize control; requested 390x844 case could not be exercised (open extraArgs were ignored, viewport stayed 1280x633).
+## Browser/API evidence
+- Authorized app restart loaded current code.
+- `/api/symbols`: exactly five selected whitelist symbols; no `all_symbols` field.
+- Picker `<select>`: exactly five options; `allSymbols` state removed.
+- `/api/chart?symbol=DOGEUSDT&timeframe=15m`: HTTP 400 JSON `{error:"symbol_not_in_universe"}`.
+- Historical DOGE/PAXG signal chart remains available by ID; UI source guards `connectMarketWs` and reconnect timer against `viewingHistorical` or non-whitelist membership.
+- Production `signals.db` was not touched; manual purge CLI was tested only against `/tmp` temporary test DBs.
 
 | ID | Dimension | Scenario | Expected | Latest evidence | Status |
 |---|---|---|---|---|---|
-| VP-01 | Happy path | Enable overlay; live route returns 24h aggTrades | Histogram, POC/VAH/VAL, coverage state | Live response HTTP 200, 20k raw trades (~1.70 MB, 2.7–3.8s), bins/levels rendered; live dataset is partial by cap | PASS (partial live data) |
-| VP-02 | Partial | Endpoint returns `page_cap` trades | Available profile remains visible with coverage duration | Browser displayed 20,000 trades and “PHỦ 39–43 PHÚT”; screenshot captured | PASS |
-| VP-03 | Empty | Empty response / zero valid trades | “CHƯA CÓ GIAO DỊCH”, no profile bars | Unit coverage only | PASS (unit) |
-| VP-04 | Error | Browser offline while enabling overlay | “LỖI TẢI”; canvas clears; app remains usable | Offline browser toggle showed error state and did not break chart | PASS |
-| VP-05 | Boundary | `start_uncovered` and 20-page cap | Partial reason displayed, no complete label | Backend fixtures pass; live cap observed | PASS |
-| VP-06 | Resilience | Select symbol while prior fetch in flight | Prior AbortController aborts and stale data cannot paint | Controller unit test pass | PASS (unit) |
-| VP-07 | Performance | Toggle/timeframe/range changes | 60s client cache; no refetch per tick/interval | Controller cache unit test pass; no per-tick request seen | PASS (unit + spot check) |
-| VP-08 | Security | Invalid symbol / hostile URL text | HTTP 400; upstream fixed host not controlled by input | Browser probe `symbol=BAD` => 400 `invalid_symbol`; unit test verifies URL input never reaches upstream | PASS |
-| VP-09 | Responsive | Desktop and 390x844 mobile | Profile width capped; no horizontal page overflow | Desktop viewport 1280x633, overflow false; 390 viewport unavailable (tool ignored `--window-size`) | PARTIAL |
-| VP-10 | Accessibility | Toggle has accessible name/state; status announced | Checkbox named and `role=status` / `aria-live=polite` | Accessibility tree names checkbox; status role live region present; axe audit not available | PARTIAL |
-| VP-11 | Regression | Other volume toggle, signal scan unaffected | Volume surge and signal flow remain unchanged | Full tests 104 Python + 44 Node pass; scan path not changed by feature | PASS (tests) |
+| U-01 | Universe | Refresh live symbols | Exact fixed five; no dynamic ranking | API returned five symbols; client and server tests pass | PASS |
+| U-02 | Picker | Search/watchlist | Only fixed five; no legacy all-symbol source | DOM select has five options; snapshot confirms | PASS |
+| U-03 | Live chart | Request DOGE chart | HTTP 400 `symbol_not_in_universe`; no candle request | Browser route returned 400 JSON | PASS |
+| U-04 | Live WebSocket | Subscribe DOGE | HTTP 400 before WS upgrade; whitelist not mutated | Server aiohttp handshake regression passes | PASS (unit/integration) |
+| U-05 | History | View archived DOGE/PAXG chart | Remains viewable; no live socket/reconnect | Historical route test + source guard test pass | PASS (unit/integration) |
+| U-06 | Legacy OPEN | Small-coin OPEN | Hidden from live active state; `/api/signals?status=OPEN` shows `NOT_MONITORED`; row remains until manual purge | Server temp-DB test and dashboard badge/source test pass | PASS (unit) |
+| P-01 | Purge preview | Temp DB with BTC+DOGE OPEN | Lists DOGE/OPEN; preview only, DB unchanged | CLI preview showed one DOGE OPEN and no mutation | PASS (temp DB) |
+| P-02 | Purge confirmation | Wrong token | Abort, no backup/delete | Unit test asserts unchanged rows and no purge backup | PASS (temp DB) |
+| P-03 | Purge apply | Typed PURGE on temp DB | Backup integrity validated, DOGE incl OPEN deleted, BTC preserved | Temp-DB tests pass, no production DB involved | PASS (temp DB) |
+| P-04 | Failure | Backup/integrity/count drift/transaction exception | Abort/rollback, source rows intact | Temp-DB regression tests pass | PASS (temp DB) |
+| P-05 | Exposure | HTTP route enumeration | No purge HTTP route | Server route test passes | PASS |
+| P-06 | Retention | Verified backups | Never auto-pruned | CLI has no retention cleanup; temp backup test passes | PASS |
+| U-07 | Regression | Whole repository | Tests/compile green; history still readable | Latest full suite 128 Python + 48 Node; py_compile + diff-check pass | PASS |
 
-## Remaining QA gaps
-- Complete-status fixture not run because live BTC reaches the 20,000-trade cap in 24h and is correctly partial.
-- 390x844 responsive viewport and axe-core audit remain unverified because the active MCP browser tool did not expose viewport or a11y commands in this runtime.
-
-## Unit verification evidence
-- `PYTHONPATH=. ./venv/bin/pytest tests/ -q`: 105 passed at latest verification.
-- `node --test tests/chart_stream.test.js`: 46 passed at latest verification (includes browser-cache eviction, partial-duration badge, and 390px renderer width-cap tests).
-- `python3 -m py_compile ...`: passed.
-- Live mounted route verified HTTP 200 after authorized restart; it returned a correctly partial 20k-trade dataset. Desktop screenshot shows partial badge/profile; mobile viewport and axe audit not run. Largest observed response: ~1.70 MB / 20k trades.
+## Known limitations
+- Excluded OPEN signals stop getting TP/SL/PnL tracking immediately when whitelist is applied; they are surfaced as NOT MONITORED until manually purged.
+- Production purge has not been run. Future operator must run preview, inspect full candidate summary, then explicitly run `--apply` and type `PURGE`; verified backup is mandatory and retained indefinitely.
+- Browser tool cannot change viewport to 390x844 or run axe-core in this environment; unit test covers the 390px histogram width cap, but physical mobile layout/accessibility audit remains unverified.
+- Do not use a dynamic top-15/quoteVolume universe. The whitelist is static and exact.

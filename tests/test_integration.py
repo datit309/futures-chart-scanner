@@ -5,6 +5,7 @@ from technical_engine import MarketSignal, PatternType
 from risk_manager import EnrichedSignal
 from telegram_notifier import TelegramNotifier
 from main import ScannerPipeline
+import config as app_config
 
 @pytest.mark.asyncio
 async def test_telegram_notifier_send_photo():
@@ -21,6 +22,52 @@ async def test_telegram_notifier_send_photo():
             caption="Test Caption"
         )
         assert success is True
+
+@pytest.mark.asyncio
+async def test_pipeline_scans_only_trusted_symbols():
+    trusted = getattr(app_config, "TRUSTED_SYMBOLS", None)
+    assert trusted == ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
+    pipeline = ScannerPipeline(ScannerConfig())
+    visited = []
+    async def fail_dynamic_selector(*args, **kwargs):
+        raise AssertionError("standalone scanner must not use dynamic quote-volume ranking")
+    pipeline.client.get_top_futures_symbols = fail_dynamic_selector
+    async def fake_scan(symbol, save_dir=None):
+        visited.append(symbol)
+        return None
+    pipeline.scan_single_symbol = fake_scan
+    await pipeline.scan_cycle(save_dir=None)
+    assert visited == list(trusted)
+
+
+@pytest.mark.asyncio
+async def test_non_whitelist_open_signals_hidden_from_live_state_but_visible_in_history(tmp_path):
+    from signal_tracker import SignalTracker
+    from server import create_app, filter_live_signals
+    from config import TRUSTED_SYMBOLS, ScannerConfig
+    app = await create_app(ScannerConfig())
+    state = app["state"]
+    tracker = SignalTracker(db_path=str(tmp_path / "legacy_open.db"))
+    state.signal_tracker = tracker
+    for symbol in [*TRUSTED_SYMBOLS[:1], "DOGEUSDT"]:
+        tracker.save_signal({
+            "symbol": symbol, "timeframe": "15m", "signal_type": "LONG", "pattern": "BREAKOUT",
+            "entry_price": 1.0, "stop_loss": 0.9, "take_profit": 1.2, "risk_reward": 2.0,
+            "description": "test", "timestamp": 1700000000,
+        })
+    state.active_signals = filter_live_signals(tracker.list_signals(status_filter="OPEN", limit=100))
+    assert set(state.active_signals) == {TRUSTED_SYMBOLS[0]}
+    assert any(s["symbol"] == "DOGEUSDT" for s in tracker.list_signals(status_filter="OPEN"))
+
+
+@pytest.mark.asyncio
+async def test_standalone_single_symbol_scan_rejects_untrusted_coin():
+    pipeline = ScannerPipeline(ScannerConfig())
+    pipeline.client.get_klines = AsyncMock(side_effect=AssertionError("must reject before market-data fetch"))
+    result = await pipeline.scan_single_symbol("DOGEUSDT")
+    assert result is None
+    pipeline.client.get_klines.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_scanner_pipeline_cycle():

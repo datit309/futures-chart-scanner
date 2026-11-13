@@ -2,6 +2,7 @@ import os
 import json
 import pytest
 from signal_tracker import SignalTracker
+from purge_signals import preview_non_whitelist_signals, purge_non_whitelist_signals
 
 
 @pytest.fixture
@@ -292,3 +293,145 @@ def test_universal_breakeven_protection_on_all_patterns(tracker):
 
 
 
+
+
+def _save_purge_fixture_signal(tracker, symbol, timestamp=1700000000.0):
+    return tracker.save_signal({
+        "symbol": symbol,
+        "timeframe": "15m",
+        "signal_type": "LONG",
+        "pattern": "BREAKOUT",
+        "entry_price": 100.0,
+        "stop_loss": 90.0,
+        "take_profit": 120.0,
+        "risk_reward": 2.0,
+        "description": "purge test",
+        "timestamp": timestamp,
+    }, klines=[{"timestamp": int(timestamp * 1000), "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1}])
+
+
+def test_purge_preview_is_read_only_and_lists_open_counts(tracker):
+    trusted_id = _save_purge_fixture_signal(tracker, "BTCUSDT")
+    doge_id = _save_purge_fixture_signal(tracker, "DOGEUSDT", 1700000001.0)
+    preview = preview_non_whitelist_signals(tracker.db_path)
+    assert preview["candidate_rows"] == 1
+    assert preview["open_rows"] == 1
+    assert preview["by_symbol"]["DOGEUSDT"]["OPEN"] == 1
+    assert preview["trusted_rows"] == 1
+    assert tracker.get_signal(trusted_id) is not None
+    assert tracker.get_signal(doge_id) is not None
+
+
+def test_purge_apply_requires_exact_confirmation(tracker, tmp_path):
+    _save_purge_fixture_signal(tracker, "DOGEUSDT")
+    before = preview_non_whitelist_signals(tracker.db_path)
+    result = purge_non_whitelist_signals(
+        tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="NO"
+    )
+    after = preview_non_whitelist_signals(tracker.db_path)
+    assert result["deleted_rows"] == 0
+    assert result["aborted"] is True
+    assert result["reason"] == "confirmation_required"
+    assert before["by_symbol"] == after["by_symbol"]
+    assert tracker.list_signals(symbol_filter="DOGEUSDT")
+    assert not list(tmp_path.glob("*-pre-purge-*.sqlite3")), "wrong confirmation must not create a purge backup"
+    assert before["candidate_rows"] == after["candidate_rows"], "wrong confirmation must not alter DB rows"
+
+
+def test_purge_apply_creates_integrity_checked_backup_and_deletes_only_non_whitelist(tracker, tmp_path):
+    trusted_id = _save_purge_fixture_signal(tracker, "BTCUSDT")
+    doge_id = _save_purge_fixture_signal(tracker, "DOGEUSDT", 1700000001.0)
+    result = purge_non_whitelist_signals(
+        tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE"
+    )
+    assert result["deleted_rows"] == 1
+    assert result["aborted"] is False
+    assert result["backup_path"]
+    assert tracker.get_signal(trusted_id) is not None
+    assert tracker.get_signal(doge_id) is None
+    assert any(tmp_path.iterdir()), "verified backup must be retained"
+
+
+def test_purge_apply_aborts_if_backup_integrity_check_fails(tracker, tmp_path, monkeypatch):
+    _save_purge_fixture_signal(tracker, "DOGEUSDT")
+    def broken_backup(db_path, backup_dir):
+        raise sqlite3.DatabaseError("integrity_check failed")
+    import sqlite3
+    monkeypatch.setattr("purge_signals._create_and_verify_backup", broken_backup)
+    with pytest.raises(sqlite3.DatabaseError):
+        purge_non_whitelist_signals(tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE")
+    assert len(tracker.list_signals(symbol_filter="DOGEUSDT")) == 1
+
+
+def test_purge_aborts_for_missing_table_or_invalid_whitelist(tmp_path, monkeypatch):
+    empty_db = tmp_path / "empty.sqlite3"
+    import sqlite3
+    with sqlite3.connect(empty_db):
+        pass
+    with pytest.raises(ValueError, match="signals table is missing"):
+        preview_non_whitelist_signals(str(empty_db))
+
+    monkeypatch.setattr("purge_signals.TRUSTED_SYMBOLS", ())
+    with pytest.raises(ValueError, match="whitelist is empty"):
+        preview_non_whitelist_signals(str(empty_db))
+
+
+def test_purge_rolls_back_on_mid_transaction_delete_failure(tracker, tmp_path, monkeypatch):
+    trusted_id = _save_purge_fixture_signal(tracker, "BTCUSDT")
+    doge_id = _save_purge_fixture_signal(tracker, "DOGEUSDT", 1700000002.0)
+    real_summary = __import__("purge_signals")._candidate_summary
+    calls = 0
+    def drift_on_transaction(conn, whitelist):
+        nonlocal calls
+        calls += 1
+        if calls >= 2:
+            raise RuntimeError("injected failure after backup before delete")
+        return real_summary(conn, whitelist)
+    monkeypatch.setattr("purge_signals._candidate_summary", drift_on_transaction)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        purge_non_whitelist_signals(tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE")
+    assert tracker.get_signal(trusted_id) is not None
+    assert tracker.get_signal(doge_id) is not None, "mid-transaction abort preserves all source rows"
+    assert list(tmp_path.glob("*-pre-purge-*.sqlite3")), "verified pre-purge backup is retained"
+
+
+def test_purge_aborts_if_database_changes_after_verified_backup(tracker, tmp_path, monkeypatch):
+    trusted_id = _save_purge_fixture_signal(tracker, "BTCUSDT")
+    doge_id = _save_purge_fixture_signal(tracker, "DOGEUSDT", 1700000003.0)
+    real_backup = __import__("purge_signals")._create_and_verify_backup
+
+    def mutate_after_backup(db_path, backup_dir):
+        backup_path = real_backup(db_path, backup_dir)
+        tracker.save_signal({
+            "symbol": "SHIBUSDT", "timeframe": "15m", "signal_type": "LONG", "pattern": "X",
+            "entry_price": 1, "stop_loss": 0.9, "take_profit": 1.2, "risk_reward": 2,
+            "timestamp": 1700000004.0,
+        })
+        return backup_path
+
+    monkeypatch.setattr("purge_signals._create_and_verify_backup", mutate_after_backup)
+    with pytest.raises(RuntimeError, match="database changed after preview"):
+        purge_non_whitelist_signals(tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE")
+    assert tracker.get_signal(trusted_id) is not None
+    assert tracker.get_signal(doge_id) is not None
+    assert tracker.list_signals(symbol_filter="SHIBUSDT"), "concurrent row remains intact after drift abort"
+    assert list(tmp_path.glob("*-pre-purge-*.sqlite3")), "verified pre-delete backup is retained"
+
+
+def test_purge_is_idempotent_after_successful_apply(tracker, tmp_path):
+    trusted_id = _save_purge_fixture_signal(tracker, "BTCUSDT")
+    doge_id = _save_purge_fixture_signal(tracker, "DOGEUSDT", 1700000005.0)
+    first = purge_non_whitelist_signals(tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE")
+    second = purge_non_whitelist_signals(tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE")
+    assert first["deleted_rows"] == 1
+    assert second["deleted_rows"] == 0
+    assert second["candidate_rows"] == 0
+    assert tracker.get_signal(trusted_id) is not None
+    assert tracker.get_signal(doge_id) is None
+
+
+def test_purge_backups_are_never_auto_pruned(tracker, tmp_path):
+    _save_purge_fixture_signal(tracker, "DOGEUSDT")
+    result = purge_non_whitelist_signals(tracker.db_path, backup_dir=str(tmp_path), apply=True, confirmation="PURGE")
+    assert result["backup_path"]
+    assert os.path.exists(result["backup_path"])

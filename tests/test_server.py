@@ -34,31 +34,227 @@ async def test_root_serves_dashboard_ui(aiohttp_client):
 
 
 @pytest.mark.asyncio
-async def test_symbols_endpoint_keeps_symbols_and_adds_metrics(aiohttp_client):
-    app = await create_app(ScannerConfig(top_n_coins=2))
+async def test_symbols_endpoint_keeps_fixed_symbols_and_adds_metrics(aiohttp_client):
+    from config import TRUSTED_SYMBOLS
+    app = await create_app(ScannerConfig(top_n_coins=1))
     state = app["state"]
-    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT", "ETHUSDT"])
     state.client.ticker_metrics = {
-        "BTCUSDT": {"lastPrice": 60000.0, "priceChangePercent": 1.25, "quoteVolume": 1000.0},
-        "ETHUSDT": {"lastPrice": 3000.0, "priceChangePercent": -0.5, "quoteVolume": 500.0},
+        symbol: {"lastPrice": 60000.0 + i, "priceChangePercent": i * 0.1, "quoteVolume": 1000.0 - i}
+        for i, symbol in enumerate(TRUSTED_SYMBOLS)
     }
     client = await aiohttp_client(app)
+    state.top_symbols = list(TRUSTED_SYMBOLS)
+    state.universe_updated_at = 12345.0
+    state.universe_stale = False
     payload = await (await client.get("/api/symbols")).json()
-    assert payload["symbols"] == ["BTCUSDT", "ETHUSDT"]
-    assert payload["count"] == 2
+    assert payload["symbols"] == list(TRUSTED_SYMBOLS)
+    assert payload["count"] == len(TRUSTED_SYMBOLS)
+    assert payload["universe"] == {"limit": 5, "hard_limit": 5, "ranking": "fixedWhitelist", "updated_at": 12345.0, "stale": False}
+    assert set(payload["tickers"]) == set(TRUSTED_SYMBOLS)
+    assert "all_symbols" not in payload
     assert payload["tickers"]["BTCUSDT"]["lastPrice"] == 60000.0
-    assert payload["tickers"]["ETHUSDT"]["priceChangePercent"] == -0.5
+    assert payload["tickers"]["ETHUSDT"]["priceChangePercent"] == 0.1
 
 
 @pytest.mark.asyncio
-async def test_api_symbols_failure_returns_empty_metrics(aiohttp_client):
+async def test_api_symbols_returns_only_trusted_symbols(aiohttp_client):
+    from config import TRUSTED_SYMBOLS
+    trusted_symbols = TRUSTED_SYMBOLS
     app = await create_app(ScannerConfig(top_n_coins=1))
     state = app["state"]
-    state.client.get_top_futures_symbols = AsyncMock(return_value=[])
+    state.top_symbols = list(trusted_symbols)
+    state.client.ticker_metrics = {symbol: {"quoteVolume": 1.0} for symbol in trusted_symbols}
+    state.client.ticker_metrics["DOGEUSDT"] = {"quoteVolume": 999999.0}
+    state.universe_updated_at = 1234.0
+    state.universe_stale = False
+    client = await aiohttp_client(app)
+    payload = await (await client.get("/api/symbols")).json()
+    assert payload["symbols"] == list(trusted_symbols)
+    assert payload["count"] == len(trusted_symbols)
+    assert set(payload["tickers"]) == set(trusted_symbols)
+    assert "all_symbols" not in payload
+    assert payload["universe"]["limit"] == len(TRUSTED_SYMBOLS)
+    assert payload["universe"]["hard_limit"] == len(TRUSTED_SYMBOLS)
+    assert payload["universe"]["stale"] is False
+
+
+@pytest.mark.asyncio
+async def test_status_and_stream_init_use_fixed_universe(aiohttp_client):
+    from config import TRUSTED_SYMBOLS
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    state.top_symbols = list(TRUSTED_SYMBOLS)
+    state.client.ticker_metrics = {s: {"quoteVolume": i} for i, s in enumerate(TRUSTED_SYMBOLS)}
+    client = await aiohttp_client(app)
+
+    status = await (await client.get("/api/status")).json()
+    assert status["top_symbols"] == list(TRUSTED_SYMBOLS)
+    assert status["universe_limit"] == len(TRUSTED_SYMBOLS)
+    assert status["top_n_coins"] == len(TRUSTED_SYMBOLS)
+
+    ws = await client.ws_connect("/ws/stream")
+    init = await ws.receive_json()
+    assert init["type"] == "INIT_STATE"
+    assert init["data"]["top_symbols"] == list(TRUSTED_SYMBOLS)
+    await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_status_reports_fixed_universe_independent_of_ticker_metrics(aiohttp_client):
+    from config import TRUSTED_SYMBOLS
+    app = await create_app(ScannerConfig(top_n_coins=2))
+    state = app["state"]
+    state.top_symbols = list(TRUSTED_SYMBOLS)
+    state.universe_updated_at = 12345.0
+    state.universe_stale = False
+    state.client.ticker_metrics = {symbol: {"lastPrice": 1.0} for symbol in TRUSTED_SYMBOLS}
+    client = await aiohttp_client(app)
+    payload = await (await client.get("/api/status")).json()
+    assert payload["top_symbols"] == list(TRUSTED_SYMBOLS)
+    assert payload["universe_stale"] is False
+    assert payload["universe_updated_at"] == 12345.0
+
+
+@pytest.mark.asyncio
+async def test_dashboard_excludes_legacy_all_symbols_picker_source(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    client = await aiohttp_client(app)
+    body = await (await client.get("/")).text()
+    assert "allSymbols" not in body
+    assert "d.all_symbols" not in body
+    assert "insertAdjacentHTML('afterbegin'" not in body
+    assert "isLiveSymbolAllowed" in body
+    assert "function connectMarketWs()" in body
+    assert "state.viewingHistorical||!isLiveSymbolAllowed(state.symbol,state.symbols)" in body
+    assert "state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;if(state.viewingHistorical||!isLiveSymbolAllowed(state.symbol,state.symbols))" in body
+    assert "if(state.viewingHistorical||!isLiveSymbolAllowed(state.symbol,state.symbols))" in body
+    assert "connectMarketWs" in body
+    assert "NOT MONITORED · KHÔNG CẬP NHẬT TP/SL" in body
+    assert "sel.value=state.viewingHistorical?state.symbol:(currentInUniverse?state.symbol:(state.symbols[0]||''))" in body
+    assert "if(!state.viewingHistorical&&!isLiveSymbolAllowed(state.symbol,state.symbols)){await selectSymbol(state.symbols[0]);}" in body
+
+
+@pytest.mark.asyncio
+async def test_non_whitelist_open_signals_hidden_from_live_state_but_visible_in_history(aiohttp_client, tmp_path):
+    from config import TRUSTED_SYMBOLS
+    from signal_tracker import SignalTracker
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
+    tracker = SignalTracker(db_path=str(tmp_path / "live_open_filter.db"))
+    state.signal_tracker = tracker
+    trusted = {"symbol": TRUSTED_SYMBOLS[0], "timeframe": "15m", "signal_type": "LONG", "pattern": "X", "entry_price": 10, "stop_loss": 9, "take_profit": 12, "risk_reward": 2, "timestamp": 1000}
+    small = {**trusted, "symbol": "DOGEUSDT"}
+    history_control = {**trusted, "symbol": TRUSTED_SYMBOLS[1], "timestamp": 900}
+    tracker.save_signal(trusted)
+    small_id = tracker.save_signal(small)
+    history_id = tracker.save_signal(history_control)
+    tracker.evaluate_signal(history_id, {"time": 900, "high": 13, "low": 10, "close": 12})
+    state.top_symbols = list(TRUSTED_SYMBOLS)
+    state.active_signals = {"DOGEUSDT": {"symbol": "DOGEUSDT", "status": "OPEN"}, TRUSTED_SYMBOLS[0]: {"symbol": TRUSTED_SYMBOLS[0], "status": "OPEN"}}
+    state.client.ticker_metrics = {symbol: {} for symbol in TRUSTED_SYMBOLS}
+    client = await aiohttp_client(app)
+
+    state_response = await (await client.get("/api/status")).json()
+    assert [s["symbol"] for s in state_response["active_signals"]] == [TRUSTED_SYMBOLS[0]]
+    live_response = await (await client.get("/api/signals?status=OPEN")).json()
+    by_symbol = {s["symbol"]: s for s in live_response["signals"]}
+    assert by_symbol[TRUSTED_SYMBOLS[0]]["monitoring_status"] == "MONITORED"
+    assert by_symbol["DOGEUSDT"]["monitoring_status"] == "NOT_MONITORED"
+    assert by_symbol["DOGEUSDT"]["status"] == "OPEN"
+    assert tracker.get_signal(small_id) is not None  # row remains persisted until explicit purge
+    history_response = await (await client.get("/api/signals?status=HISTORY")).json()
+    assert [s["symbol"] for s in history_response["signals"]] == [TRUSTED_SYMBOLS[1]]
+
+
+@pytest.mark.asyncio
+async def test_no_http_purge_route_is_registered():
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    routes = [route.resource.canonical for route in app.router.routes() if getattr(route, "resource", None)]
+    assert not any("purge" in route.lower() for route in routes)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_history_never_connects_market_ws_for_archived_symbol(aiohttp_client):
+    app = await create_app(ScannerConfig())
+    client = await aiohttp_client(app)
+    body = await (await client.get("/")).text()
+    assert "connectMarketWs(){if(state.viewingHistorical||!isLiveSymbolAllowed(state.symbol,state.symbols))" in body
+    assert "if(state.viewingHistorical||!isLiveSymbolAllowed(state.symbol,state.symbols))" in body
+    assert "state.marketReconnectTimer=setTimeout(async()=>{state.marketReconnectTimer=null;if(state.viewingHistorical||!isLiveSymbolAllowed(state.symbol,state.symbols))" in body
+    assert "allSymbols" not in body
+    assert "sel.insertAdjacentHTML('afterbegin'" not in body
+
+
+@pytest.mark.asyncio
+async def test_live_chart_rejects_symbol_outside_top15(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=2, timeframe="15m"))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT", "ETHUSDT"]
+    state.client.ticker_metrics = {
+        "BTCUSDT": {"lastPrice": 1.0}, "ETHUSDT": {"lastPrice": 1.0}, "DOGEUSDT": {"lastPrice": 1.0}
+    }
+    state.client.get_klines = AsyncMock(return_value=[
+        {"timestamp": 1700000000000 + i * 900000, "open": 100 + i, "high": 102 + i, "low": 99 + i, "close": 101 + i, "volume": 100, "close_time": 1700000900000 + i * 900000}
+        for i in range(30)
+    ])
+    client = await aiohttp_client(app)
+    res = await client.get("/api/chart?symbol=DOGEUSDT&timeframe=15m")
+    assert res.status == 400
+    assert (await res.json())["error"] == "symbol_not_in_universe"
+    state.client.get_klines.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_market_ws_rejects_symbol_outside_top15_before_upgrade_without_appending(aiohttp_client):
+    app = await create_app(ScannerConfig(top_n_coins=2, timeframe="15m"))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT", "ETHUSDT"]
+    state.client.ticker_metrics = {
+        "BTCUSDT": {"lastPrice": 1.0}, "ETHUSDT": {"lastPrice": 1.0}, "DOGEUSDT": {"lastPrice": 1.0}
+    }
+    client = await aiohttp_client(app)
+    from aiohttp import WSServerHandshakeError
+    with pytest.raises(WSServerHandshakeError) as exc:
+        await client.ws_connect("/ws/market?symbol=DOGEUSDT&timeframe=15m")
+    assert exc.value.status == 400
+    assert state.top_symbols == ["BTCUSDT", "ETHUSDT"]
+
+
+@pytest.mark.asyncio
+async def test_historical_signal_chart_remains_available_outside_live_universe(aiohttp_client, tmp_path):
+    from signal_tracker import SignalTracker
+    app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
+    state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
+    tracker = SignalTracker(db_path=str(tmp_path / "universe_history.db"))
+    state.signal_tracker = tracker
+    signal = {
+        "symbol": "DOGEUSDT", "timeframe": "15m", "signal_type": "LONG", "pattern": "BREAKOUT",
+        "entry_price": 0.1, "stop_loss": 0.09, "take_profit": 0.12, "risk_reward": 2.0,
+        "description": "Archived small coin signal", "timestamp": 1700000000.0,
+    }
+    candles = [{"timestamp": 1700000000000 + i * 900000, "open": 0.1, "high": 0.11, "low": 0.09, "close": 0.1, "volume": 100} for i in range(3)]
+    signal_id = tracker.save_signal(signal, candles)
+    client = await aiohttp_client(app)
+    res = await client.get(f"/api/signals/{signal_id}/chart")
+    assert res.status == 200
+    assert (await res.json())["symbol"] == "DOGEUSDT"
+
+
+@pytest.mark.asyncio
+async def test_api_symbols_returns_fixed_whitelist_without_ticker_metrics(aiohttp_client):
+    from config import TRUSTED_SYMBOLS
+    app = await create_app(ScannerConfig(top_n_coins=1))
+    state = app["state"]
     state.client.ticker_metrics = {}
     client = await aiohttp_client(app)
     payload = await (await client.get("/api/symbols")).json()
-    assert payload == {"symbols": [], "count": 0, "tickers": {}}
+    assert payload["symbols"] == list(TRUSTED_SYMBOLS)
+    assert payload["count"] == len(TRUSTED_SYMBOLS)
+    assert set(payload["tickers"]) == set(TRUSTED_SYMBOLS)
+    assert payload["universe"]["limit"] == len(TRUSTED_SYMBOLS)
+    assert payload["universe"]["stale"] is False
+    assert "all_symbols" not in payload
 
 
 @pytest.mark.asyncio
@@ -89,10 +285,10 @@ async def test_market_websocket_rejects_bad_timeframe_and_unknown_symbol(aiohttp
     app = await create_app(ScannerConfig(top_n_coins=1))
     app["state"].top_symbols = ["BTCUSDT"]
     client = await aiohttp_client(app)
-    for symbol, timeframe in (("BTCUSDT", "2m"), ("NOPEUSDT", "15m")):
+    for symbol, timeframe, expected_error in (("BTCUSDT", "2m", "invalid_subscription"), ("NOPEUSDT", "15m", "symbol_not_in_universe")):
         response = await client.get(f"/ws/market?symbol={symbol}&timeframe={timeframe}")
         assert response.status == 400
-        assert (await response.json())["error"] == "invalid_subscription"
+        assert (await response.json())["error"] == expected_error
 
 
 @pytest.mark.asyncio
@@ -421,6 +617,7 @@ async def test_structure_payload_includes_smc_and_forecast(aiohttp_client):
 async def test_api_chart_supports_pagination_with_endtime(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
     state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
     state.client.get_klines = AsyncMock(return_value=[
         {"timestamp": 1700000000000, "open": 100, "high": 105, "low": 99, "close": 102, "volume": 50, "close_time": 1700000900000 - 1}
     ])
@@ -574,6 +771,8 @@ async def test_news_feed_failure_does_not_block_scan():
             pass
 
     state.news_service = NewsService(clock=lambda: 1_794_400_000.0, session_factory=FailingSession)
+    from config import TRUSTED_SYMBOLS
+    state.top_symbols = list(TRUSTED_SYMBOLS)
     # even a hung/blocking feed must not stall the scan
     state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
 
@@ -597,7 +796,10 @@ async def test_news_feed_failure_does_not_block_scan():
                               description="Test", extra_targets={"tp1": 60850.0, "tp2": 61350.0},
                               sl_pct=0.008)
 
-    with patch.object(state.technical_engine, "analyze_market", return_value=[raw]):
+    def analyze_only_btc(klines, symbol="BTCUSDT", timeframe="15m", htf_bias="NEUTRAL"):
+        return [raw] if symbol == "BTCUSDT" else []
+
+    with patch.object(state.technical_engine, "analyze_market", side_effect=analyze_only_btc):
         with patch.object(state.risk_manager, "validate_and_enrich", return_value=enriched):
             with patch.object(state.notifier, "send_chart_alert", AsyncMock(return_value=True)):
                 # news refresh fails hard
@@ -629,8 +831,9 @@ async def test_run_scan_enforces_single_active_position_per_symbol():
     state = app["state"]
 
     # Mark BTCUSDT as having an OPEN position
+    from config import TRUSTED_SYMBOLS
+    state.top_symbols = list(TRUSTED_SYMBOLS)
     state.active_signals["BTCUSDT"] = {"symbol": "BTCUSDT", "status": "OPEN", "id": 10}
-    state.client.get_top_futures_symbols = AsyncMock(return_value=["BTCUSDT"])
 
     base_ts = 1794386600000
     klines = [
@@ -647,11 +850,20 @@ async def test_run_scan_enforces_single_active_position_per_symbol():
                        stop_loss=60600.0, take_profit=59000.0, risk_reward=2.2,
                        description="Opposing Short")
 
-    with patch.object(state.technical_engine, "analyze_market", return_value=[raw]) as mock_analyze:
+    def analyze_only_btc(klines, symbol="BTCUSDT", timeframe="15m", htf_bias="NEUTRAL"):
+        return [raw] if symbol == "BTCUSDT" else []
+
+    analyzed_symbols = []
+    def track_analyze(klines, symbol="BTCUSDT", timeframe="15m", htf_bias="NEUTRAL"):
+        analyzed_symbols.append(symbol)
+        return analyze_only_btc(klines, symbol, timeframe, htf_bias)
+
+    with patch.object(state.technical_engine, "analyze_market", side_effect=track_analyze):
         found = await state.run_scan()
-        # Should not generate a new signal for BTCUSDT because an OPEN position is already active
-        assert len(found) == 0
-        mock_analyze.assert_not_called()
+        # BTC OPEN is skipped; only the other trusted symbols reach analysis.
+        assert found == []
+        assert "BTCUSDT" not in analyzed_symbols
+        assert set(analyzed_symbols) == set(TRUSTED_SYMBOLS[1:])
 
 
 @pytest.mark.asyncio
@@ -795,6 +1007,7 @@ async def test_volume_profile_cache_ttl_and_inflight_coalescing(aiohttp_client):
 async def test_volume_profile_upstream_failure_does_not_block_chart_or_scan(aiohttp_client):
     app = await create_app(ScannerConfig(top_n_coins=1, timeframe="15m"))
     state = app["state"]
+    state.top_symbols = ["BTCUSDT"]
     state.client.get_aggregate_trades = AsyncMock(side_effect=RuntimeError("aggTrades unavailable"))
     state.client.get_klines = AsyncMock(return_value=[
         {"timestamp": 1700000000000 + i * 900000, "open": 100, "high": 101, "low": 99, "close": 100, "volume": 10, "close_time": 1700000900000 + i * 900000}
